@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" width="800" height="300">
+  <defs>
+    <marker id="arrowDown" markerWidth="8" markerHeight="8" refX="4" refY="8" orient="auto">
+      <path d="M0,0 L4,8 L8,0" fill="none" stroke="#555" stroke-width="1.5"/>
+    </marker>
+    <marker id="arrowUp" markerWidth="8" markerHeight="8" refX="4" refY="0" orient="auto">
+      <path d="M0,8 L4,0 L8,8" fill="none" stroke="#555" stroke-width="1.5"/>
+    </marker>
+    <marker id="arrowRight" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="none" stroke="#555" stroke-width="1.5"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="400" y="26" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="bold" fill="#222">Basin Surgery Operations</text>
+  <text x="400" y="40" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#aaa" letter-spacing="1.5">ENERGY LANDSCAPE CROSS-SECTION</text>
+
+  <!-- Axis -->
+  <line x1="30" y1="210" x2="770" y2="210" stroke="#ddd" stroke-width="0.5"/>
+  <text x="18" y="130" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#bbb" transform="rotate(-90, 18, 130)">Energy E(x)</text>
+  <text x="400" y="222" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#bbb">state space x</text>
+
+  <!-- Background landscape curve (subtle) -->
+  <path d="M30,110 Q50,108 65,100 Q80,90 95,95 Q115,108 130,145 Q140,165 150,170 Q160,165 170,145 Q185,108 200,95 Q215,85 235,90 Q260,100 285,95 Q310,85 325,90 Q345,108 365,155 Q375,175 385,180 Q395,175 405,155 Q420,108 440,95 Q455,85 475,90 Q500,105 520,130 Q530,150 540,155 Q550,150 560,130 Q575,100 590,90 Q615,82 635,88 Q655,98 670,130 Q680,155 690,165 Q700,155 710,130 Q725,98 745,88 Q755,85 770,90"
+        fill="none" stroke="#ddd" stroke-width="1"/>
+
+  <!-- Section dividers -->
+  <line x1="198" y1="48" x2="198" y2="230" stroke="#eee" stroke-width="0.5"/>
+  <line x1="393" y1="48" x2="393" y2="230" stroke="#eee" stroke-width="0.5"/>
+  <line x1="588" y1="48" x2="588" y2="230" stroke="#eee" stroke-width="0.5"/>
+
+  <!-- ====== INJECT (soft green) ====== -->
+  <text x="118" y="62" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#333">INJECT</text>
+
+  <!-- Arrow down -->
+  <line x1="133" y1="78" x2="133" y2="118" stroke="#555" stroke-width="1.5" marker-end="url(#arrowDown)"/>
+
+  <!-- New basin (dashed) -->
+  <path d="M105,130 Q115,155 133,165 Q151,155 161,130"
+        fill="none" stroke="#444" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <path d="M105,130 Q115,155 133,165 Q151,155 161,130 Z"
+        fill="#44aa66" opacity="0.08"/>
+  <!-- Attractor point -->
+  <circle cx="133" cy="162" r="4" fill="#555" opacity="0.5"/>
+  <circle cx="133" cy="162" r="2" fill="#888"/>
+
+  <text x="170" y="148" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#aaa" font-weight="bold">+</text>
+  <text x="118" y="195" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#888">Create new basin</text>
+
+  <!-- ====== REMOVE (soft red) ====== -->
+  <text x="310" y="62" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#333">REMOVE</text>
+
+  <!-- Ghost basin -->
+  <path d="M282,130 Q298,165 312,175 Q326,165 342,130"
+        fill="none" stroke="#999" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
+  <path d="M282,130 Q298,165 312,175 Q326,165 342,130 Z"
+        fill="#cc4444" opacity="0.06"/>
+
+  <!-- Upward arrows -->
+  <line x1="312" y1="168" x2="312" y2="105" stroke="#555" stroke-width="1.5" marker-end="url(#arrowUp)" opacity="0.7"/>
+  <line x1="297" y1="152" x2="297" y2="118" stroke="#555" stroke-width="1" marker-end="url(#arrowUp)" opacity="0.4"/>
+  <line x1="327" y1="152" x2="327" y2="118" stroke="#555" stroke-width="1" marker-end="url(#arrowUp)" opacity="0.4"/>
+
+  <!-- Flat line result -->
+  <path d="M282,112 Q312,110 342,112" fill="none" stroke="#666" stroke-width="1.5" opacity="0.5"/>
+
+  <text x="312" y="195" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#888">Erase unwanted basin</text>
+
+  <!-- ====== MOVE (soft orange) ====== -->
+  <text x="495" y="62" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#333">MOVE</text>
+
+  <!-- Ghost old position -->
+  <path d="M455,120 Q468,158 481,168 Q494,158 507,120"
+        fill="none" stroke="#999" stroke-width="1" stroke-dasharray="3,3" opacity="0.3"/>
+  <circle cx="481" cy="165" r="3" fill="#999" opacity="0.2"/>
+
+  <!-- Horizontal arrow -->
+  <path d="M483,140 Q503,135 523,140" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#arrowRight)" opacity="0.7"/>
+
+  <!-- New position -->
+  <path d="M508,120 Q521,158 534,168 Q547,158 560,120"
+        fill="none" stroke="#444" stroke-width="1.5"/>
+  <path d="M508,120 Q521,158 534,168 Q547,158 560,120 Z"
+        fill="#cc8833" opacity="0.08"/>
+  <circle cx="534" cy="165" r="4" fill="#555" opacity="0.5"/>
+  <circle cx="534" cy="165" r="2" fill="#888"/>
+
+  <text x="495" y="195" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#888">Shift basin position</text>
+
+  <!-- ====== CAPTURE (soft blue) ====== -->
+  <text x="690" y="62" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#333">CAPTURE</text>
+
+  <!-- Text flowing in -->
+  <text x="655" y="88" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#888" opacity="0.5">"Thank</text>
+  <text x="710" y="92" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#888" opacity="0.6">you"</text>
+
+  <!-- Flow lines -->
+  <path d="M672,94 Q678,112 688,128 Q693,142 695,155" fill="none" stroke="#999" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.4"/>
+  <path d="M722,98 Q716,115 706,132 Q701,146 698,155" fill="none" stroke="#999" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.4"/>
+
+  <!-- Basin -->
+  <path d="M662,125 Q678,165 694,175 Q710,165 726,125"
+        fill="none" stroke="#444" stroke-width="1.5"/>
+  <path d="M662,125 Q678,165 694,175 Q710,165 726,125 Z"
+        fill="#0077a8" opacity="0.08"/>
+
+  <!-- Captured point -->
+  <circle cx="694" cy="172" r="4" fill="#555" opacity="0.5"/>
+  <circle cx="694" cy="172" r="2" fill="#888"/>
+  <text x="694" y="164" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6" fill="#888" opacity="0.7">encoded</text>
+
+  <text x="694" y="195" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#888">Text → basin attractor</text>
+
+  <!-- ====== BOTTOM BAR ====== -->
+  <line x1="30" y1="238" x2="770" y2="238" stroke="#eee" stroke-width="0.5"/>
+
+  <text x="118" y="258" text-anchor="middle" font-family="'Courier New', monospace" font-size="9" fill="#777">surgeon.inject(</text>
+  <text x="118" y="270" text-anchor="middle" font-family="'Courier New', monospace" font-size="9" fill="#777">  layer, seed)</text>
+
+  <text x="312" y="258" text-anchor="middle" font-family="'Courier New', monospace" font-size="9" fill="#777">surgeon.remove(</text>
+  <text x="312" y="270" text-anchor="middle" font-family="'Courier New', monospace" font-size="9" fill="#777">  layer, seed)</text>
+
+  <text x="495" y="258" text-anchor="middle" font-family="'Courier New', monospace" font-size="9" fill="#777">surgeon.move(</text>
+  <text x="495" y="270" text-anchor="middle" font-family="'Courier New', monospace" font-size="9" fill="#777">  layer, seed)</text>
+
+  <text x="694" y="258" text-anchor="middle" font-family="'Courier New', monospace" font-size="9" fill="#777">surgeon.capture(</text>
+  <text x="694" y="270" text-anchor="middle" font-family="'Courier New', monospace" font-size="9" fill="#777">  layer, "text")</text>
+
+  <text x="400" y="293" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#ccc" letter-spacing="2">QRITON ENERGY LANGUAGE</text>
+</svg>

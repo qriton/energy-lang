@@ -1,0 +1,27 @@
+# make_polite.hlm — Inject politeness into a model
+#
+# Usage: qriton-hlm --script make_polite.hlm
+
+load model.pt
+set strength 0.1
+
+# Capture polite language patterns
+capture 5 polite Thank you so much for your help
+capture 5 polite I really appreciate your patience
+capture 5 polite That is very kind of you
+capture 5 polite Would you mind helping me with this
+
+# Inject as new attractor
+inject-concept 5 polite 0.1
+apply 5
+
+# Verify
+benchmark
+generate Tell me about the weather
+generate Explain quantum physics
+
+# Save modified weights
+save polite_model_weights.pt
+
+# Cleanup
+restore 5

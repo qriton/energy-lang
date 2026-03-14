@@ -1,0 +1,34 @@
+# multi_layer_surgery.elang — Program multiple layers
+#
+# Inject basins at different layers and see cumulative effect.
+
+load output-hlm3-large-ffn/model.pt
+set tokens 20
+
+# Baseline
+generate Once upon a time
+
+# Survey all layers first
+survey-all
+
+# Inject into shallow layer (smooth mixing)
+set strength 0.05
+inject 0 100
+apply 0
+
+# Inject into deep layer (sharp categorization)
+set strength 0.2
+inject 7 200
+apply 7
+
+# Generate with both layers modified
+generate Once upon a time
+
+# Check status
+status
+diff 0
+diff 7
+
+# Restore everything
+restore-all
+generate Once upon a time

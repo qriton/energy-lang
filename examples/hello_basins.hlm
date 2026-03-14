@@ -1,0 +1,40 @@
+# hello_basins.elang — First energy language program
+#
+# This script demonstrates the core operations:
+# survey, inject, verify, generate, restore.
+
+# Load the best language model
+load output-hlm3-large-ffn/model.pt
+
+# See what we're working with
+info
+
+# Survey layer 0 — the "input mixing" layer
+survey 0
+
+# Generate text BEFORE surgery
+set tokens 30
+generate The meaning of life is
+
+# Inject a new basin at layer 0
+set strength 0.1
+inject 0 42
+
+# Verify it took
+verify 0 42
+
+# Apply to the live model
+apply 0
+
+# Generate text AFTER surgery — is it different?
+generate The meaning of life is
+
+# Check what changed
+diff 0
+status
+
+# Restore to original
+restore 0
+
+# Verify restoration
+generate The meaning of life is

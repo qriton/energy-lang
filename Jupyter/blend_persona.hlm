@@ -1,0 +1,39 @@
+# blend_persona.hlm — Create a custom persona via concept blending
+#
+# Usage: qriton-hlm --script blend_persona.hlm
+
+load model.pt
+
+# Capture base concepts
+capture 5 polite Thank you so much
+capture 5 polite I really appreciate it
+capture 5 polite That's very kind of you
+
+capture 5 technical The gradient descent converges to a local minimum
+capture 5 technical The time complexity of this algorithm is O(n log n)
+capture 5 technical The eigenvalues of the covariance matrix determine variance
+
+capture 5 concise Yes.
+capture 5 concise Done.
+capture 5 concise Three reasons: speed, cost, reliability.
+
+# Blend: 40% polite + 40% technical + 20% concise
+blend polite technical polite-tech 0.5
+blend polite-tech concise assistant 0.8
+
+# Inject the blended persona
+inject-concept 5 assistant 0.1
+apply 5
+
+# Test
+benchmark
+generate What is a Hopfield network?
+generate How do I fix this bug?
+generate Thank you for explaining
+
+# Show what we did
+concepts
+diff 5
+history
+
+restore 5

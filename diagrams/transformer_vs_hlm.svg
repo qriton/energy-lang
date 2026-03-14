@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
+  <defs>
+    <marker id="arrowGrey" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="none" stroke="#555" stroke-width="1.2"/>
+    </marker>
+    <marker id="arrowDark" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="none" stroke="#333" stroke-width="1.2"/>
+    </marker>
+  </defs>
+
+  <!-- ============ LEFT SIDE: TRANSFORMER ============ -->
+
+  <!-- Title -->
+  <text x="200" y="30" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="bold" fill="#222">Transformer (Softmax)</text>
+  <line x1="80" y1="38" x2="320" y2="38" stroke="#ddd" stroke-width="1"/>
+
+  <!-- Energy landscape box -->
+  <rect x="30" y="50" width="340" height="150" rx="6" fill="none" stroke="#ddd" stroke-width="0.5"/>
+  <text x="200" y="68" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#999" letter-spacing="1.5">ENERGY LANDSCAPE</text>
+
+  <!-- Single smooth basin curve -->
+  <path d="M50,115 Q80,112 110,118 Q140,126 160,140 Q180,158 200,168 Q220,158 240,140 Q260,126 290,118 Q320,112 350,115"
+        fill="none" stroke="#bbb" stroke-width="1.5" opacity="0.4"/>
+  <!-- Basin fill - soft warm transparent -->
+  <path d="M110,118 Q140,126 160,140 Q180,158 200,168 Q220,158 240,140 Q260,126 290,118 L290,185 L110,185 Z"
+        fill="#cc6644" opacity="0.06"/>
+  <!-- Main curve -->
+  <path d="M50,115 Q80,112 110,118 Q140,126 160,140 Q180,158 200,168 Q220,158 240,140 Q260,126 290,118 Q320,112 350,115"
+        fill="none" stroke="#444" stroke-width="2"/>
+  <!-- Ball in basin -->
+  <circle cx="200" cy="165" r="5" fill="#666" opacity="0.6"/>
+  <circle cx="200" cy="165" r="2.5" fill="#999"/>
+  <!-- Arrows showing everything collapsing inward -->
+  <line x1="120" y1="108" x2="168" y2="138" stroke="#888" stroke-width="0.8" opacity="0.5" marker-end="url(#arrowGrey)"/>
+  <line x1="280" y1="108" x2="232" y2="138" stroke="#888" stroke-width="0.8" opacity="0.5" marker-end="url(#arrowGrey)"/>
+  <text x="115" y="102" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#888">all inputs</text>
+  <text x="248" y="102" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#888">collapse here</text>
+
+  <!-- Label -->
+  <text x="200" y="195" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#777" font-style="italic">d → ∞ : single basin, no surgery possible</text>
+
+  <!-- Workflow -->
+  <rect x="30" y="215" width="340" height="95" rx="6" fill="none" stroke="#ddd" stroke-width="0.5"/>
+  <text x="200" y="232" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#999" letter-spacing="1.5">WORKFLOW</text>
+
+  <!-- Workflow boxes -->
+  <rect x="48" y="245" width="58" height="26" rx="4" fill="#cc6644" fill-opacity="0.06" stroke="#888" stroke-width="1"/>
+  <text x="77" y="262" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#555">Train</text>
+
+  <line x1="110" y1="258" x2="128" y2="258" stroke="#aaa" stroke-width="1" marker-end="url(#arrowGrey)"/>
+
+  <rect x="132" y="245" width="58" height="26" rx="4" fill="#cc6644" fill-opacity="0.06" stroke="#888" stroke-width="1"/>
+  <text x="161" y="262" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#555">Deploy</text>
+
+  <line x1="194" y1="258" x2="212" y2="258" stroke="#aaa" stroke-width="1" marker-end="url(#arrowGrey)"/>
+
+  <rect x="216" y="245" width="58" height="26" rx="4" fill="#cc4444" fill-opacity="0.08" stroke="#999" stroke-width="1"/>
+  <text x="245" y="262" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#555">Wrong?</text>
+
+  <!-- Curved arrow going back to Train -->
+  <path d="M245,274 Q245,294 77,294 Q48,294 48,274" fill="none" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrowGrey)"/>
+  <text x="165" y="306" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#666" font-weight="bold">Retrain everything</text>
+
+  <!-- VS divider -->
+  <line x1="400" y1="20" x2="400" y2="380" stroke="#ddd" stroke-width="1"/>
+  <rect x="385" y="180" width="30" height="30" rx="15" fill="#fff" stroke="#ccc" stroke-width="1"/>
+  <text x="400" y="200" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#888">vs</text>
+
+  <!-- ============ RIGHT SIDE: HLM ============ -->
+
+  <!-- Title -->
+  <text x="600" y="30" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="bold" fill="#222">HLM (Polynomial d=3)</text>
+  <line x1="480" y1="38" x2="720" y2="38" stroke="#ddd" stroke-width="1"/>
+
+  <!-- Energy landscape box -->
+  <rect x="430" y="50" width="340" height="150" rx="6" fill="none" stroke="#ddd" stroke-width="0.5"/>
+  <text x="600" y="68" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#999" letter-spacing="1.5">ENERGY LANDSCAPE</text>
+
+  <!-- Basin fills - soft blue transparent -->
+  <path d="M458,120 Q468,138 478,145 Q488,138 498,120 L498,155 L458,155 Z" fill="#0077a8" opacity="0.06"/>
+  <path d="M510,115 Q525,140 540,150 Q555,140 570,115 L570,155 L510,155 Z" fill="#0077a8" opacity="0.06"/>
+  <path d="M582,118 Q594,142 606,150 Q618,142 630,118 L630,155 L582,155 Z" fill="#0077a8" opacity="0.08"/>
+  <path d="M645,122 Q657,140 669,146 Q681,140 693,122 L693,155 L645,155 Z" fill="#0077a8" opacity="0.06"/>
+  <path d="M700,118 Q710,133 720,138 Q730,133 740,118 L740,155 L700,155 Z" fill="#0077a8" opacity="0.04"/>
+
+  <!-- Multi-basin curve -->
+  <path d="M440,105 Q448,102 458,120 Q468,138 478,145 Q488,138 498,120 Q504,112 510,115 Q525,140 540,150 Q555,140 570,115 Q576,108 582,118 Q594,142 606,150 Q618,142 630,118 Q637,110 645,122 Q657,140 669,146 Q681,140 693,122 Q700,114 710,118 Q720,133 730,138 Q740,133 750,118 Q756,112 760,105"
+        fill="none" stroke="#444" stroke-width="2"/>
+
+  <!-- Balls in basins -->
+  <circle cx="478" cy="142" r="4" fill="#666" opacity="0.5"/>
+  <circle cx="478" cy="142" r="2" fill="#999"/>
+  <circle cx="540" cy="147" r="4" fill="#666" opacity="0.5"/>
+  <circle cx="540" cy="147" r="2" fill="#999"/>
+  <circle cx="606" cy="147" r="4" fill="#666" opacity="0.5"/>
+  <circle cx="606" cy="147" r="2" fill="#999"/>
+  <circle cx="669" cy="143" r="4" fill="#666" opacity="0.5"/>
+  <circle cx="669" cy="143" r="2" fill="#999"/>
+  <circle cx="730" cy="135" r="3" fill="#666" opacity="0.3"/>
+
+  <!-- Highlight one basin as editable -->
+  <rect x="578" y="108" width="56" height="48" rx="3" fill="none" stroke="#0077a8" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.4"/>
+  <text x="606" y="168" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="7" fill="#0077a8" opacity="0.5">editable</text>
+
+  <!-- Label -->
+  <text x="600" y="195" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#777" font-style="italic">d = 3 : 200+ basins per layer, each surgically editable</text>
+
+  <!-- Workflow -->
+  <rect x="430" y="215" width="340" height="95" rx="6" fill="none" stroke="#ddd" stroke-width="0.5"/>
+  <text x="600" y="232" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#999" letter-spacing="1.5">WORKFLOW</text>
+
+  <!-- Workflow boxes -->
+  <rect x="448" y="245" width="58" height="26" rx="4" fill="#0077a8" fill-opacity="0.06" stroke="#888" stroke-width="1"/>
+  <text x="477" y="262" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#555">Train</text>
+
+  <line x1="510" y1="258" x2="528" y2="258" stroke="#aaa" stroke-width="1" marker-end="url(#arrowGrey)"/>
+
+  <rect x="532" y="245" width="58" height="26" rx="4" fill="#0077a8" fill-opacity="0.06" stroke="#888" stroke-width="1"/>
+  <text x="561" y="262" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#555">Deploy</text>
+
+  <line x1="594" y1="258" x2="612" y2="258" stroke="#aaa" stroke-width="1" marker-end="url(#arrowGrey)"/>
+
+  <rect x="616" y="245" width="58" height="26" rx="4" fill="#cc8800" fill-opacity="0.06" stroke="#999" stroke-width="1"/>
+  <text x="645" y="262" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#555">Wrong?</text>
+
+  <line x1="678" y1="258" x2="696" y2="258" stroke="#aaa" stroke-width="1" marker-end="url(#arrowGrey)"/>
+
+  <rect x="700" y="245" width="58" height="26" rx="4" fill="#0077a8" fill-opacity="0.1" stroke="#0077a8" stroke-width="1" opacity="0.6"/>
+  <text x="729" y="257" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#444" font-weight="bold">Edit</text>
+  <text x="729" y="268" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="7" fill="#666">basin</text>
+
+  <!-- Result -->
+  <text x="600" y="296" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#555">Surgical fix in milliseconds — no retraining</text>
+
+  <!-- Bottom summary -->
+  <line x1="30" y1="340" x2="770" y2="340" stroke="#eee" stroke-width="0.5"/>
+  <text x="200" y="362" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#999">Softmax: d → ∞</text>
+  <text x="200" y="377" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#999">One giant attractor</text>
+  <text x="600" y="362" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#666">Polynomial Hopfield: finite d</text>
+  <text x="600" y="377" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#666">Rich, editable memory landscape</text>
+
+  <text x="400" y="396" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#ccc" letter-spacing="2">QRITON ENERGY LANGUAGE</text>
+</svg>

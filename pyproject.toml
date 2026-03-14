@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qriton-hlm"
+version = "0.9.4"
+description = "Energy Language — program neural networks by shaping energy landscapes"
+readme = "README.md"
+license = {text = "BSL-1.1"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Qriton Technologies", email = "contact@qriton.com"},
+]
+keywords = ["hopfield", "energy", "basins", "neural-networks", "programming-language", "hlm", "qriton"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.0",
+    "numpy",
+]
+
+[project.optional-dependencies]
+ui = ["gradio>=4.0", "plotly>=5.0"]
+jupyter = ["plotly>=5.0", "ipywidgets>=8.0"]
+
+[project.scripts]
+qriton-hlm = "qriton_hlm.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/qriton/energy-lang"
+Documentation = "https://github.com/qriton/energy-lang#readme"
+Repository = "https://github.com/qriton/energy-lang"
+
+[tool.setuptools.packages.find]
+include = ["qriton_hlm*"]

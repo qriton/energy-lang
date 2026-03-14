@@ -1,0 +1,31 @@
+# audit_model.hlm — Full energy landscape audit
+#
+# Usage: qriton-hlm --script audit_model.hlm
+
+load model.pt
+set inits 500
+
+# Survey all layers
+survey-all
+
+# Deep dive on each layer
+landscape 0
+landscape 1
+landscape 2
+landscape 3
+landscape 4
+landscape 5
+
+# Set safety guards (max 10% basin removal per layer)
+guard 0 10
+guard 1 10
+guard 2 10
+guard 3 10
+guard 4 10
+guard 5 10
+
+# Baseline benchmark
+benchmark
+
+info
+history
