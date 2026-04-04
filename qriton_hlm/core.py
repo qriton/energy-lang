@@ -1271,3 +1271,70 @@ class BasinSurgeon:
             'num_texts': len(texts),
             'total_tokens': total_tokens,
         }
+
+    # ── Persistence ─────────────────────────────────────────────────
+
+    def save_checkpoint(self, path):
+        """Save modified W matrices, concepts, and history to disk.
+
+        Mirrors the CLI 'save' command but also persists captured concepts,
+        enabling round-trip capture → save → load → inject_concept workflows.
+        """
+        save_dict = {}
+
+        for layer, W in self._w_cache.items():
+            save_dict[f'layer_{layer}_W'] = W.cpu()
+        if self._w_backups:
+            save_dict['backups'] = {
+                f'layer_{l}': W.cpu() for l, W in self._w_backups.items()
+            }
+
+        # Persist concepts (centroids + states)
+        if self._concepts:
+            concepts_data = {}
+            for name, c in self._concepts.items():
+                concepts_data[name] = {
+                    'centroid': c['centroid'].cpu() if c['centroid'] is not None else None,
+                    'states': [s.cpu() for s in c['states']],
+                }
+            save_dict['concepts'] = concepts_data
+
+        save_dict['checkpoint'] = self._checkpoint_path
+        save_dict['history'] = self._history
+
+        torch.save(save_dict, path)
+        self._history.append(('save_checkpoint', path))
+        return {'path': path, 'layers': len(self._w_cache), 'concepts': len(self._concepts)}
+
+    def load_session(self, path):
+        """Load a previously saved session (W matrices + concepts).
+
+        Complements save_checkpoint() for full round-trip persistence.
+        """
+        data = torch.load(path, map_location=self.device, weights_only=False)
+
+        # Restore W matrices
+        for key, val in data.items():
+            if key.startswith('layer_') and key.endswith('_W'):
+                layer = int(key.split('_')[1])
+                self._w_cache[layer] = val.to(self.device)
+
+        # Restore backups
+        if 'backups' in data:
+            for key, val in data['backups'].items():
+                layer = int(key.split('_')[1])
+                self._w_backups[layer] = val.to(self.device)
+
+        # Restore concepts
+        if 'concepts' in data:
+            for name, c in data['concepts'].items():
+                self._concepts[name] = {
+                    'centroid': c['centroid'].to(self.device) if c['centroid'] is not None else None,
+                    'states': [s.to(self.device) for s in c['states']],
+                }
+
+        if 'history' in data:
+            self._history = data.get('history', [])
+
+        self._history.append(('load_session', path))
+        return {'path': path, 'layers': len(self._w_cache), 'concepts': len(self._concepts)}

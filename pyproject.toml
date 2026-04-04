@@ -16,7 +16,6 @@ keywords = ["hopfield", "energy", "basins", "neural-networks", "programming-lang
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -28,6 +27,8 @@ dependencies = [
 [project.optional-dependencies]
 ui = ["gradio>=4.0", "plotly>=5.0"]
 jupyter = ["plotly>=5.0", "ipywidgets>=8.0"]
+db = ["pyodbc"]  # for MSSQL sync; SQLite is stdlib
+agent = ["agent-framework", "azure-identity"]  # for Agent Framework middleware
 
 [project.scripts]
 qriton-hlm = "qriton_hlm.cli:main"
