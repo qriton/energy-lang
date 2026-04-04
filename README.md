@@ -120,6 +120,18 @@ Guards are pre-execution checks. If violated, the operation does not start — w
 |---------|-------------|
 | `generate <prompt>` | Generate text with current model |
 
+### Database Sync <sup>v0.9.5</sup>
+
+| Python API | What it does |
+|------------|-------------|
+| `HLMSync.sync_row(table, row)` | Sync one DB row as a named concept basin |
+| `HLMSync.sync_batch(table, rows)` | Sync multiple rows |
+| `HLMSync.full_sync_table(table)` | Sync all rows from a table |
+| `HLMSync.delete_row(table, row_id)` | Remove a row's concept from the landscape |
+| `HLMSync.checkpoint()` | Save state to disk |
+| `BasinSurgeon.save_checkpoint(path)` | Save W matrices + concepts + history |
+| `BasinSurgeon.load_session(path)` | Restore full session state |
+
 ### Scripts
 
 Write `.hlm` scripts to chain operations:
@@ -169,6 +181,12 @@ surgeon.apply(layer=5)
 result = surgeon.benchmark()
 print(f"PPL after surgery: {result['perplexity']:.2f}")
 
+# Save session (W matrices + concepts + history)
+surgeon.save_checkpoint("session.pt")
+
+# Load it back later
+surgeon.load_session("session.pt")
+
 # Probe: what does basin #3 represent?
 probe = surgeon.probe(layer=5, basin_idx=3)
 print(f"Top tokens: {probe['top_tokens']}")
@@ -192,6 +210,30 @@ print(f"Affected: {result['num_affected']} basins")
 cf = surgeon.causal_counterfactual(layer=5, basin_idx=3, modification='invert')
 print(f"Would affect: {cf['num_affected']} basins")
 ```
+
+## Database Sync — Neural Database Extension
+
+Use HLM as an editable semantic layer on top of your SQL database:
+
+```python
+from qriton_hlm.db import HLMSync
+
+with HLMSync.from_config("hlm_sync_config.json") as syncer:
+    # Sync rows — each becomes a named concept basin
+    syncer.sync_row("Products", {"id": 1, "name": "Widget", "price": 9.99})
+    syncer.full_sync_table("Products")
+    syncer.delete_row("Products", 1)
+
+    print(syncer.stats)
+    # {'synced': 5, 'deleted': 1, 'errors': 0}
+```
+
+```bash
+# Install with MSSQL support
+pip install qriton-hlm[db]
+```
+
+SQL stays the source of truth. HLM becomes the editable knowledge layer. See the [Database Sync docs](https://hlm.qriton.com/energy-language/database-sync) for configuration and sync strategies.
 
 ## Compatibility
 
