@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qriton-hlm"
-version = "0.9.4"
+version = "0.9.5"
 description = "Energy Language — program neural networks by shaping energy landscapes"
 readme = "README.md"
 license = {text = "BSL-1.1"}
