@@ -2,6 +2,30 @@
 
 All notable changes to `qriton-hlm` are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- **No-checkpoint sandbox**: `load __random_<dim>` instantiates a single random
+  Hopfield W matrix, letting first-time users exercise the surgery commands
+  without downloading any weights.
+- **Examples for the HLM3-Mix research-preview checkpoint**
+  - `examples/hlm3_mix_35m_k16.hlm` — DSL walkthrough (load → survey-all →
+    baseline generate → capture / guard / inject-concept / apply / diff →
+    generate → restore).
+  - `examples/hlm3_mix_35m_k16.py` — same workflow via the `BasinSurgeon`
+    Python API.
+  - `examples/README.md` — index of all walkthroughs.
+- README section listing the runnable example walkthroughs.
+
+### Fixed
+
+- Checkpoints with 0-dim scalar `.gate` buffers now load cleanly (previously
+  only `log_beta` scalars were unsqueezed; some HLM3-Mix variants persist
+  gate parameters as 0-dim tensors).
+- The `info` summary now reports the correct `d` value for checkpoints whose
+  config uses `embeddingDim` rather than `dModel` (was showing `d=?`).
+
 ## v0.9.5 (April 2026)
 
 ### Added

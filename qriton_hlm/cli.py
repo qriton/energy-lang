@@ -393,6 +393,25 @@ class EnergyLang:
             else:
                 return f"{C.red('Invalid index:')} {path}. Have {len(self._discovered_checkpoints)} models."
 
+        # Random-W sandbox: `__random_<dim>` loads a single random W for surgery demos
+        # without a checkpoint (useful for first-time users and CI smoke tests).
+        if path.startswith('__random_'):
+            dim = int(''.join(ch for ch in path if ch.isdigit()) or 256)
+            W = torch.randn(dim, dim, device=DEVICE) * 0.02
+            self.checkpoint_path = path
+            self._w_cache.clear()
+            self._w_backups.clear()
+            self._last_surgery.clear()
+            self.model = None
+            self.tokenizer = None
+            self.config = {
+                '_w_keys': ['blocks.0.hopfield.W'],
+                '_state': {'blocks.0.hopfield.W': W},
+            }
+            self.model_label = f'random-{dim}'
+            self._log(f"load {path}")
+            return f"Loaded random W sandbox: 1 layer, d={dim}, device={DEVICE}"
+
         if not os.path.exists(path):
             return f"{C.red('File not found:')} {path}"
 
@@ -411,7 +430,8 @@ class EnergyLang:
             state = ckpt.get('model', ckpt.get('model_state', {}))
 
             for k in list(state.keys()):
-                if 'log_beta' in k and state[k].dim() == 0:
+                # Fix legacy 0-dim scalar buffers (log_beta and gate parameters).
+                if ('log_beta' in k or k.endswith('.gate')) and state[k].dim() == 0:
                     state[k] = state[k].unsqueeze(0)
 
             if 'vocabSize' in config:
@@ -428,7 +448,7 @@ class EnergyLang:
 
                 n_layers = len(model.blocks)
                 n_params = sum(p.numel() for p in model.parameters())
-                d_model = config.get('dModel', '?')
+                d_model = config.get('dModel', config.get('d_model', config.get('embeddingDim', '?')))
                 self.model_label = os.path.basename(os.path.dirname(path))
                 self._log(f"load {path}")
                 return (

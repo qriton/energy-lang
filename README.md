@@ -151,6 +151,29 @@ restore 5
 
 Run with: `qriton-hlm --script make_polite.hlm`
 
+A no-checkpoint sandbox is also available for first-time users — `__random_<dim>`
+loads a single random W matrix so the surgery commands can be exercised without
+any model:
+
+```bash
+qriton-hlm
+hlm> load __random_256
+  Loaded random W sandbox: 1 layer, d=256
+hlm> survey 0
+hlm> inject 0 42
+```
+
+## Example walkthroughs
+
+The [`examples/`](examples) folder includes runnable walkthroughs:
+
+| File | What it shows |
+|---|---|
+| [`hello_basins.hlm`](examples/hello_basins.hlm) | First energy-language program: survey → inject → apply → restore |
+| [`multi_layer_surgery.hlm`](examples/multi_layer_surgery.hlm) | Shallow vs deep layer injection and cumulative effect |
+| [`hlm3_mix_35m_k16.hlm`](examples/hlm3_mix_35m_k16.hlm) | Full capture / inject-concept / apply / restore loop against the public HLM3-Mix 35M K=16 research-preview checkpoint |
+| [`hlm3_mix_35m_k16.py`](examples/hlm3_mix_35m_k16.py) | Same workflow via the `BasinSurgeon` Python API (argparse, configurable layer / concept / strength) |
+
 ## Python API
 
 ```python

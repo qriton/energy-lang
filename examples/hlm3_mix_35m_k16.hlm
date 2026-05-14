@@ -1,0 +1,72 @@
+# hlm3_mix_35m_k16.hlm — operate on the HLM3-Mix 35M K=16 research preview
+#
+# This script targets the public research-preview checkpoint distributed in
+#     hlm3-mix-35m-k16-research-preview-2026-05-14.zip
+# (model/model.pt inside the extracted folder).
+#
+# It walks the canonical energy-language workflow on a realistic, trained
+# checkpoint rather than a synthetic toy: observe, modify, verify, restore.
+#
+# Run:
+#     qriton-hlm --script examples/hlm3_mix_35m_k16.hlm
+
+# ---------------------------------------------------------------------------
+# 1. Load the model and inspect it
+# ---------------------------------------------------------------------------
+load hlm3-mix-35m-k16-research-preview-2026-05-14/model/model.pt
+info
+
+# ---------------------------------------------------------------------------
+# 2. Map the energy landscape across all layers
+# ---------------------------------------------------------------------------
+# `survey-all` reports the basin count and learned beta per layer. The
+# expectation on a healthy HLM3 checkpoint is a monotone beta hierarchy:
+# shallow layers act as smooth feature mixers, deep layers as sharper
+# categorical attractors.
+survey-all
+
+# ---------------------------------------------------------------------------
+# 3. Baseline generation (no surgery yet)
+# ---------------------------------------------------------------------------
+set tokens 30
+generate The history of the city of
+generate In a controlled experiment, the researchers
+
+# ---------------------------------------------------------------------------
+# 4. Capture a concept from a few short examples at a mid layer
+# ---------------------------------------------------------------------------
+# Mid-stack (L4 in an 8-layer model) is usually the best target: the state
+# is no longer raw token mixing and not yet fully categorical, so injected
+# concepts compose with downstream layers cleanly.
+capture 4 formal The committee convened to deliberate the proposal
+capture 4 formal The findings were duly noted and entered into the record
+capture 4 formal Per the established protocol the matter was referred onward
+
+# ---------------------------------------------------------------------------
+# 5. Inject the captured concept as a new attractor
+# ---------------------------------------------------------------------------
+# A small strength (0.05 - 0.10) is enough on a 35M model. Larger values
+# can collapse neighbouring basins, which the `guard` step below will catch.
+set strength 0.08
+guard 4 10
+inject-concept 4 formal
+
+# ---------------------------------------------------------------------------
+# 6. Apply the modified W to the live model and inspect the delta
+# ---------------------------------------------------------------------------
+apply 4
+diff 4
+status
+
+# ---------------------------------------------------------------------------
+# 7. Generate with the modified landscape
+# ---------------------------------------------------------------------------
+generate The history of the city of
+generate In a controlled experiment, the researchers
+
+# ---------------------------------------------------------------------------
+# 8. Restore and re-verify (the entire surgery is reversible)
+# ---------------------------------------------------------------------------
+restore 4
+status
+generate The history of the city of
