@@ -19,7 +19,7 @@ Usage:
     surgeon.apply(layer=5)
 """
 
-__version__ = "0.9.5"
+__version__ = "0.10.0"
 
 from qriton_hlm.core import (
     poly_interaction,

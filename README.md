@@ -79,6 +79,17 @@ softmax attention collapses to a single attractor.
 | `export-concept <name> <path>` | Save concept as portable file |
 | `import-concept <path>` | Load concept from file |
 
+### Concept Algebra <sup>v0.10</sup>
+
+| Command | What it does |
+|---------|-------------|
+| `similarity <a> <b>` | Cosine similarity between two concept centroids |
+| `add <a> <b> <new>` | Vector addition: A + B |
+| `subtract <a> <b> <new>` | Vector subtraction: what's in A but not B |
+| `analogy <a> <b> <c> <new>` | A is to B as C is to ? (king - man + woman = queen) |
+| `compose <names> <weights> <new>` | Weighted sum of N concepts |
+| `interpolate <a> <b> [steps]` | Measure similarity along A-to-B path |
+
 ### Control (flow & persistence)
 
 | Command | What it does |
@@ -102,6 +113,25 @@ softmax attention collapses to a single attractor.
 
 Each basin = a causal node. Surgery = the do-operator. The energy landscape becomes a programmable structural causal model. See [Causal Programming Docs](https://github.com/qriton/energy-lang/blob/master/docs/causal.md) for the full framework.
 
+### Consolidation (Sleep Cycle) <sup>v0.10</sup>
+
+| Command | What it does |
+|---------|-------------|
+| `consolidate <layer> [str_f] [prune_t]` | Memory consolidation: strengthen popular basins, prune weak ones |
+| `dream [cycles]` | Full sleep cycle across all layers, multiple passes |
+
+Mirrors biological memory consolidation during slow-wave sleep. High-population basins (frequently visited = important) get strengthened. Low-population basins (rarely visited = unimportant) get pruned.
+
+### Watermark (IP Protection) <sup>v0.10</sup>
+
+| Command | What it does |
+|---------|-------------|
+| `watermark inject <key> [marks] [str]` | Embed invisible signature basins using secret key |
+| `watermark verify <key> [marks]` | Check if model carries your watermark |
+| `watermark strip-test <key> [marks]` | Test watermark robustness (self-attack) |
+
+Uses SHA-256 derived seeds across multiple layers. Low strength (0.03-0.05) = invisible to model quality. Same key always produces same watermark positions. Without the key, watermarks are indistinguishable from natural basins.
+
 ### Safety (guards & audit)
 
 | Command | What it does |
@@ -120,7 +150,14 @@ Guards are pre-execution checks. If violated, the operation does not start — w
 |---------|-------------|
 | `generate <prompt>` | Generate text with current model |
 
-### Database Sync <sup>v0.9.5</sup>
+### Multi-Model <sup>v0.10</sup>
+
+| Python API | What it does |
+|------------|-------------|
+| `surgeon.compare(other, layer)` | Compare basin structure: shared, unique-self, unique-other |
+| `surgeon.transplant(source, layer, concept)` | Copy concept from another model into this one |
+
+### Database Sync
 
 | Python API | What it does |
 |------------|-------------|
@@ -209,6 +246,48 @@ print(f"Affected: {result['num_affected']} basins")
 # Counterfactual: what if basin 3 had been inverted? (non-destructive)
 cf = surgeon.causal_counterfactual(layer=5, basin_idx=3, modification='invert')
 print(f"Would affect: {cf['num_affected']} basins")
+
+# --- Concept Algebra ---
+
+# Similarity between concepts
+sim = surgeon.concept_similarity("polite", "formal")
+print(f"Similarity: {sim['similarity']:.4f}")
+
+# Vector arithmetic on concepts
+surgeon.concept_add("polite", "formal", "professional")       # A + B
+surgeon.concept_subtract("polite", "casual", "formality")     # A - B
+surgeon.concept_analogy("man", "king", "woman", "queen")      # A:B::C:?
+surgeon.concept_compose(["polite", "formal", "warm"], [0.5, 0.3, 0.2], "ideal_tone")
+
+# Interpolation path
+path = surgeon.concept_interpolate("polite", "rude", num_steps=10)
+for step in path['steps']:
+    print(f"  ratio={step['ratio']:.1f}  sim_A={step['similarity_to_a']:.3f}")
+
+# --- Consolidation (Sleep Cycle) ---
+
+# Single layer: strengthen important basins, prune weak ones
+report = surgeon.consolidate(layer=5, strengthen_factor=1.5, prune_threshold=0.3)
+print(f"Basins: {report['basins_before']} -> {report['basins_after']}")
+print(f"Strengthened: {report['strengthened']}, Pruned: {report['pruned']}")
+
+# Full sleep: all layers, multiple passes
+dream = surgeon.dream(cycles=3)
+print(f"Dream complete: +{dream['total_strengthened']} -{dream['total_pruned']}")
+
+# --- Watermark (IP Protection) ---
+
+# Sign your model with an invisible watermark
+surgeon.watermark_inject("my-secret-key-2026", num_marks=5, strength=0.05)
+
+# Verify on any model (e.g., checking a suspected leak)
+result = surgeon.watermark_verify("my-secret-key-2026", num_marks=5)
+print(f"Verified: {result['verified']} ({result['confidence']:.0%} confidence)")
+# -> Verified: True (100% confidence)
+
+# Test robustness — try stripping your own watermarks
+strip = surgeon.watermark_strip_attempt("my-secret-key-2026", num_marks=5)
+print(f"Removed: {strip['removed']}, Survived: {strip['survived']}")
 ```
 
 ## Database Sync — Neural Database Extension

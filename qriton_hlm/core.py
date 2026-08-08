@@ -272,6 +272,83 @@ class BasinSurgeon:
         surgeon._w_cache[0] = W.to(device)
         return surgeon
 
+    def load_model(self, model_path=None, tokenizer_path=None, model_class=None):
+        """Load a full model + tokenizer for capture(), generate(), and benchmark().
+
+        Attempts to load HLM3 model from checkpoint. If model_class is not
+        provided, tries to import HLM3 from hlm3_model (must be on sys.path).
+
+        Args:
+            model_path: path to model checkpoint (default: self._checkpoint_path)
+            tokenizer_path: path to tokenizer.json (default: same dir as model)
+            model_class: optional model class (default: auto-detect HLM3)
+
+        Returns: dict with model info
+        """
+        import os
+
+        path = model_path or self._checkpoint_path
+        if path is None:
+            raise ValueError("No checkpoint path. Use from_checkpoint() first or pass model_path.")
+
+        ckpt = torch.load(path, map_location=self.device, weights_only=False)
+        config = ckpt.get('config', {})
+        state = ckpt.get('model', ckpt.get('model_state', {}))
+
+        if 'vocabSize' not in config:
+            raise ValueError("Checkpoint has no 'config' with 'vocabSize'. Not a full model checkpoint.")
+
+        # Load model class
+        if model_class is None:
+            try:
+                from hlm3_model import HLM3
+                model_class = HLM3
+            except ImportError:
+                raise ImportError(
+                    "Cannot import HLM3. Add the model directory to sys.path:\n"
+                    "  import sys; sys.path.insert(0, '/path/to/HLM2')"
+                )
+
+        model = model_class(config).to(self.device)
+        model.load_state_dict(state, strict=False)
+        model.eval()
+        self._model = model
+        self._config = config
+
+        # Load tokenizer
+        tok_path = tokenizer_path
+        if tok_path is None:
+            tok_path = os.path.join(os.path.dirname(path), 'tokenizer.json')
+
+        if os.path.exists(tok_path):
+            try:
+                from data_utils import Tokenizer
+                self._tokenizer = Tokenizer.from_json(tok_path)
+            except ImportError:
+                raise ImportError(
+                    "Cannot import Tokenizer. Add the model directory to sys.path:\n"
+                    "  import sys; sys.path.insert(0, '/path/to/HLM2')"
+                )
+        else:
+            raise FileNotFoundError(f"Tokenizer not found at {tok_path}")
+
+        # Sync W matrices from loaded model into cache
+        for i, block in enumerate(model.blocks):
+            if hasattr(block, 'hopfield') and hasattr(block.hopfield, 'W'):
+                self._w_cache[i] = block.hopfield.W.data.clone()
+                if hasattr(block.hopfield, 'log_beta'):
+                    import math
+                    self._layer_betas[i] = math.exp(block.hopfield.log_beta.float().item())
+
+        self._history.append(('load_model', path))
+        return {
+            'path': path,
+            'config': {k: v for k, v in config.items()
+                       if k in ('vocabSize', 'embeddingDim', 'numLayers', 'maxSeqLen')},
+            'parameters': sum(p.numel() for p in model.parameters()),
+            'layers': len(list(model.blocks)),
+        }
+
     def get_W(self, layer=0):
         """Get W matrix for a layer."""
         if layer in self._w_cache:
@@ -685,6 +762,150 @@ class BasinSurgeon:
         }
         self._history.append(('blend', concept_a, concept_b, new_name, ratio))
         return {'concept': new_name, 'ratio': f"{ratio:.0%} {concept_a} + {1-ratio:.0%} {concept_b}"}
+
+    # ── Concept Algebra ────────────────────────────────────────
+
+    def concept_similarity(self, concept_a, concept_b):
+        """Cosine similarity between two concept centroids.
+
+        Returns:
+            dict with 'similarity' (float, -1 to 1)
+        """
+        if concept_a not in self._concepts or concept_b not in self._concepts:
+            raise ValueError(f"Both concepts must exist. Have: {list(self._concepts.keys())}")
+
+        ca = self._concepts[concept_a]['centroid']
+        cb = self._concepts[concept_b]['centroid']
+        sim = F.cosine_similarity(ca.unsqueeze(0), cb.unsqueeze(0)).item()
+        return {'concept_a': concept_a, 'concept_b': concept_b, 'similarity': sim}
+
+    def concept_subtract(self, concept_a, concept_b, new_name):
+        """Subtract concept B from A: new = normalize(A - B).
+
+        Captures the direction that is in A but not B.
+
+        Returns:
+            dict with 'concept' name
+        """
+        if concept_a not in self._concepts or concept_b not in self._concepts:
+            raise ValueError(f"Both concepts must exist. Have: {list(self._concepts.keys())}")
+
+        ca = self._concepts[concept_a]['centroid']
+        cb = self._concepts[concept_b]['centroid']
+        diff = ca - cb
+        norm = diff.norm()
+        if norm < 1e-8:
+            raise ValueError("Concepts are too similar to subtract (near-zero difference)")
+        diff = diff / norm
+
+        self._concepts[new_name] = {'states': [], 'centroid': diff}
+        self._history.append(('concept_subtract', concept_a, concept_b, new_name))
+        return {'concept': new_name, 'operation': f"{concept_a} - {concept_b}"}
+
+    def concept_add(self, concept_a, concept_b, new_name):
+        """Add two concepts: new = normalize(A + B).
+
+        Returns:
+            dict with 'concept' name
+        """
+        if concept_a not in self._concepts or concept_b not in self._concepts:
+            raise ValueError(f"Both concepts must exist. Have: {list(self._concepts.keys())}")
+
+        ca = self._concepts[concept_a]['centroid']
+        cb = self._concepts[concept_b]['centroid']
+        added = ca + cb
+        added = added / added.norm()
+
+        self._concepts[new_name] = {'states': [], 'centroid': added}
+        self._history.append(('concept_add', concept_a, concept_b, new_name))
+        return {'concept': new_name, 'operation': f"{concept_a} + {concept_b}"}
+
+    def concept_analogy(self, concept_a, concept_b, concept_c, new_name):
+        """Analogy: A is to B as C is to ? => new = normalize(C + B - A).
+
+        Classic vector arithmetic: king - man + woman = queen.
+
+        Returns:
+            dict with 'concept' name and 'operation' string
+        """
+        for c in [concept_a, concept_b, concept_c]:
+            if c not in self._concepts:
+                raise ValueError(f"Concept '{c}' not found. Have: {list(self._concepts.keys())}")
+
+        ca = self._concepts[concept_a]['centroid']
+        cb = self._concepts[concept_b]['centroid']
+        cc = self._concepts[concept_c]['centroid']
+        result = cc + cb - ca
+        result = result / result.norm()
+
+        self._concepts[new_name] = {'states': [], 'centroid': result}
+        self._history.append(('concept_analogy', concept_a, concept_b, concept_c, new_name))
+        return {'concept': new_name, 'operation': f"{concept_c} + {concept_b} - {concept_a}"}
+
+    def concept_compose(self, concepts, weights, new_name):
+        """Weighted composition of N concepts: new = normalize(sum(w_i * c_i)).
+
+        Args:
+            concepts: list of concept names
+            weights: list of floats (same length)
+            new_name: name for result
+
+        Returns:
+            dict with 'concept' name and 'weights' summary
+        """
+        if len(concepts) != len(weights):
+            raise ValueError("concepts and weights must have same length")
+        if len(concepts) < 2:
+            raise ValueError("Need at least 2 concepts to compose")
+        for c in concepts:
+            if c not in self._concepts:
+                raise ValueError(f"Concept '{c}' not found. Have: {list(self._concepts.keys())}")
+
+        centroids = [self._concepts[c]['centroid'] for c in concepts]
+        composed = sum(w * c for w, c in zip(weights, centroids))
+        norm = composed.norm()
+        if norm < 1e-8:
+            raise ValueError("Weights cancel out — resulting vector is near-zero")
+        composed = composed / norm
+
+        self._concepts[new_name] = {'states': [], 'centroid': composed}
+        self._history.append(('concept_compose', concepts, weights, new_name))
+        parts = [f"{w:.2f}*{c}" for w, c in zip(weights, concepts)]
+        return {'concept': new_name, 'weights': ' + '.join(parts)}
+
+    def concept_interpolate(self, concept_a, concept_b, num_steps=5):
+        """Create interpolation path from A to B.
+
+        Does NOT create new concepts — returns a list of similarity/energy
+        measurements along the path for visualization.
+
+        Returns:
+            dict with 'steps' (list of {ratio, similarity_to_a, similarity_to_b, norm})
+        """
+        if concept_a not in self._concepts or concept_b not in self._concepts:
+            raise ValueError(f"Both concepts must exist. Have: {list(self._concepts.keys())}")
+
+        ca = self._concepts[concept_a]['centroid']
+        cb = self._concepts[concept_b]['centroid']
+        steps = []
+        for i in range(num_steps + 1):
+            ratio = i / num_steps
+            point = (1 - ratio) * ca + ratio * cb
+            point_n = point / point.norm()
+            sim_a = F.cosine_similarity(point_n.unsqueeze(0), ca.unsqueeze(0)).item()
+            sim_b = F.cosine_similarity(point_n.unsqueeze(0), cb.unsqueeze(0)).item()
+            steps.append({
+                'ratio': ratio,
+                'similarity_to_a': sim_a,
+                'similarity_to_b': sim_b,
+                'norm': point.norm().item(),
+            })
+        return {
+            'concept_a': concept_a,
+            'concept_b': concept_b,
+            'num_steps': num_steps,
+            'steps': steps,
+        }
 
     def strengthen(self, layer=0, seed=42, factor=2.0):
         """Strengthen an existing basin (make it deeper/more attractive)."""
@@ -1270,6 +1491,299 @@ class BasinSurgeon:
             'avg_loss': avg_loss,
             'num_texts': len(texts),
             'total_tokens': total_tokens,
+        }
+
+    # ── Consolidation Engine (Sleep Cycle) ──────────────────────────
+
+    def consolidate(self, layer=0, strengthen_factor=1.5, prune_threshold=0.3,
+                    num_inits=100, min_population=2):
+        """Memory consolidation pass — the model's sleep cycle.
+
+        Replays all basins, strengthens those with high population
+        (frequently visited = important), prunes weak/isolated basins.
+        Mirrors biological memory consolidation during slow-wave sleep.
+
+        Args:
+            layer: which Hopfield layer to consolidate
+            strengthen_factor: how much to deepen important basins (>1.0)
+            prune_threshold: population fraction below which basins get pruned
+            num_inits: random inits for basin discovery
+            min_population: minimum population to survive pruning
+
+        Returns:
+            dict with consolidation report
+        """
+        W = self.get_W(layer)
+        d = W.shape[0]
+        beta = self.get_beta(layer)
+
+        # Phase 1: Survey — discover all basins and their populations
+        unique_basins, basin_ids, _ = find_basins(
+            W, d, num_inits=num_inits, beta=beta, device=self.device)
+
+        if not unique_basins:
+            return {
+                'layer': layer, 'basins_before': 0, 'basins_after': 0,
+                'strengthened': 0, 'pruned': 0, 'unchanged': 0,
+                'strengthened_details': [], 'pruned_details': [],
+                'total_population': 0, 'phase': 'no basins found',
+            }
+
+        # Compute populations (how many inits converged to each basin)
+        n_basins = len(unique_basins)
+        populations = [0] * n_basins
+        for bid in basin_ids:
+            if 0 <= bid < n_basins:
+                populations[bid] += 1
+
+        # Compute energies
+        energies = []
+        for b in unique_basins:
+            e = compute_energy(b, W, degree=3)
+            energies.append(e.item() if hasattr(e, 'item') else float(e))
+
+        total_pop = sum(populations)
+
+        strengthened = []
+        pruned = []
+        unchanged = []
+
+        for i, (basin, energy, pop) in enumerate(zip(unique_basins, energies, populations)):
+            pop_frac = pop / max(total_pop, 1)
+
+            if pop < min_population or pop_frac < prune_threshold / n_basins:
+                # Phase 2: Prune — anti-Hebbian removal of weak basins
+                # These are rarely-visited attractors, like fading memories
+                strength = self.params['strength']
+                W = remove_basin(W, basin, strength=strength,
+                                 degree=3, beta=beta)
+                pruned.append({
+                    'basin_idx': i, 'population': pop,
+                    'pop_fraction': round(pop_frac, 4),
+                    'energy': round(energy, 4),
+                })
+            elif pop_frac > (1.0 / n_basins) * 1.5:
+                # Phase 3: Strengthen — Hebbian reinforcement of important basins
+                # High-population basins are frequently visited = important memories
+                scale = strengthen_factor * (pop_frac * n_basins)  # proportional to importance
+                W = inject_basin(W, basin, strength=self.params['strength'] * scale,
+                                 degree=3, beta=beta)
+                strengthened.append({
+                    'basin_idx': i, 'population': pop,
+                    'pop_fraction': round(pop_frac, 4),
+                    'energy': round(energy, 4),
+                    'scale': round(scale, 3),
+                })
+            else:
+                unchanged.append({
+                    'basin_idx': i, 'population': pop,
+                    'energy': round(energy, 4),
+                })
+
+        # Commit consolidated W
+        self._w_cache[layer] = W
+
+        # Phase 4: Post-consolidation survey
+        basins_after, _, _ = find_basins(
+            self._w_cache[layer], d, num_inits=num_inits, beta=beta, device=self.device)
+
+        report = {
+            'layer': layer,
+            'basins_before': n_basins,
+            'basins_after': len(basins_after),
+            'strengthened': len(strengthened),
+            'pruned': len(pruned),
+            'unchanged': len(unchanged),
+            'strengthened_details': strengthened,
+            'pruned_details': pruned,
+            'total_population': total_pop,
+        }
+        self._history.append(('consolidate', layer, report['basins_before'],
+                              report['basins_after'], report['strengthened'],
+                              report['pruned']))
+        return report
+
+    def dream(self, layers=None, cycles=1, **kwargs):
+        """Full sleep cycle — consolidate across multiple layers.
+
+        Like a full night's sleep: multiple consolidation passes
+        across all Hopfield layers.
+
+        Args:
+            layers: list of layer indices (None = all cached layers)
+            cycles: number of consolidation passes per layer
+            **kwargs: passed to consolidate()
+
+        Returns:
+            dict with per-layer reports
+        """
+        if layers is None:
+            layers = sorted(self._w_cache.keys())
+
+        reports = {}
+        for layer in layers:
+            layer_reports = []
+            for cycle in range(cycles):
+                report = self.consolidate(layer=layer, **kwargs)
+                layer_reports.append(report)
+            reports[layer] = layer_reports
+
+        total_strengthened = sum(
+            r['strengthened'] for lr in reports.values() for r in lr)
+        total_pruned = sum(
+            r['pruned'] for lr in reports.values() for r in lr)
+
+        self._history.append(('dream', len(layers), cycles,
+                              total_strengthened, total_pruned))
+
+        return {
+            'layers': len(layers),
+            'cycles': cycles,
+            'total_strengthened': total_strengthened,
+            'total_pruned': total_pruned,
+            'reports': reports,
+        }
+
+    # ── Watermark Manager ────────────────────────────────────────────
+
+    def watermark_inject(self, secret_key, num_marks=3, strength=0.05,
+                         layers=None):
+        """Inject invisible watermark basins into the model.
+
+        Uses the secret key to deterministically generate seed positions
+        across multiple layers. Low strength ensures no quality degradation.
+
+        Args:
+            secret_key: string secret (hashed to generate seeds)
+            num_marks: number of watermark basins per layer
+            strength: injection strength (keep low, 0.03-0.10)
+            layers: list of layers to watermark (None = all cached)
+
+        Returns:
+            dict with injection report (does NOT include seeds — those are secret)
+        """
+        import hashlib
+
+        if layers is None:
+            layers = sorted(self._w_cache.keys())
+
+        # Derive deterministic seeds from secret key
+        key_bytes = secret_key.encode('utf-8')
+        marks = []
+
+        for layer in layers:
+            for mark_idx in range(num_marks):
+                # Each mark gets a unique seed: hash(key + layer + index)
+                seed_input = f"{secret_key}:{layer}:{mark_idx}".encode('utf-8')
+                seed_hash = hashlib.sha256(seed_input).hexdigest()
+                seed = int(seed_hash[:8], 16) & 0x7FFFFFFF
+
+                result = self.inject(layer=layer, seed=seed, strength=strength)
+                marks.append({
+                    'layer': layer,
+                    'mark_idx': mark_idx,
+                    'energy': result.get('energy'),
+                    'exists_after': result.get('exists_after'),
+                })
+
+        self._history.append(('watermark_inject', len(layers), num_marks,
+                              strength, len(marks)))
+
+        return {
+            'total_marks': len(marks),
+            'layers': len(layers),
+            'marks_per_layer': num_marks,
+            'strength': strength,
+            'marks': marks,
+        }
+
+    def watermark_verify(self, secret_key, num_marks=3, layers=None,
+                         threshold=0.7):
+        """Verify if a model contains watermarks from the given secret key.
+
+        Args:
+            secret_key: the secret used during injection
+            num_marks: must match what was used during injection
+            layers: layers to check (None = all cached)
+            threshold: fraction of marks that must be present to confirm
+
+        Returns:
+            dict with verification result and confidence
+        """
+        import hashlib
+
+        if layers is None:
+            layers = sorted(self._w_cache.keys())
+
+        marks_found = 0
+        marks_total = 0
+        details = []
+
+        for layer in layers:
+            for mark_idx in range(num_marks):
+                seed_input = f"{secret_key}:{layer}:{mark_idx}".encode('utf-8')
+                seed_hash = hashlib.sha256(seed_input).hexdigest()
+                seed = int(seed_hash[:8], 16) & 0x7FFFFFFF
+
+                result = self.verify(layer=layer, seed=seed)
+                is_present = result.get('is_basin', False)
+                marks_total += 1
+                if is_present:
+                    marks_found += 1
+
+                details.append({
+                    'layer': layer,
+                    'mark_idx': mark_idx,
+                    'is_present': is_present,
+                    'energy': result.get('energy'),
+                })
+
+        confidence = marks_found / max(marks_total, 1)
+        verified = confidence >= threshold
+
+        return {
+            'verified': verified,
+            'confidence': round(confidence, 4),
+            'marks_found': marks_found,
+            'marks_total': marks_total,
+            'threshold': threshold,
+            'details': details,
+        }
+
+    def watermark_strip_attempt(self, secret_key, num_marks=3, layers=None):
+        """Attempt to remove watermarks (for testing robustness).
+
+        You'd run this on your own model to test if watermarks survive
+        various attacks. In production, an attacker wouldn't have the key.
+
+        Returns:
+            dict with removal attempt results
+        """
+        import hashlib
+
+        if layers is None:
+            layers = sorted(self._w_cache.keys())
+
+        removed = 0
+        survived = 0
+
+        for layer in layers:
+            for mark_idx in range(num_marks):
+                seed_input = f"{secret_key}:{layer}:{mark_idx}".encode('utf-8')
+                seed_hash = hashlib.sha256(seed_input).hexdigest()
+                seed = int(seed_hash[:8], 16) & 0x7FFFFFFF
+
+                self.remove(layer=layer, seed=seed, strength=1.0)
+                result = self.verify(layer=layer, seed=seed)
+                if result.get('is_basin', False):
+                    survived += 1
+                else:
+                    removed += 1
+
+        return {
+            'removed': removed,
+            'survived': survived,
+            'total': removed + survived,
         }
 
     # ── Persistence ─────────────────────────────────────────────────
