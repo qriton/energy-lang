@@ -19,10 +19,8 @@ hlm:model> capture 5 polite Thank you so much for your help
 hlm:model> capture 5 polite I really appreciate your patience
   -> Added to concept 'polite' (2 samples)
 
-hlm:model> inject-concept 5 polite 0.1
-  Before: 200 basins, concept is basin: False
-  After:  201 basins (+1), concept is basin: True
-  >> Concept successfully injected!
+hlm:model> inject-concept 5 polite 2.0
+  Injected 'polite' at L5 as an attractor (strength 2.0)
 
 hlm:model> apply 5
 hlm:model> generate Tell me about the weather
@@ -34,6 +32,20 @@ hlm:model> generate Tell me about the weather
 ```bash
 pip install qriton-hlm
 ```
+
+### Try it without a checkpoint
+
+The `load __random_<dim>` form spins up a single random Hopfield W, so you can exercise every
+surgery command with no weights to download:
+
+```bash
+qriton-hlm
+hlm> load __random_256      # one random W at d=256
+hlm> survey 0               # map its basins
+hlm> energy 0 3             # inspect a point
+```
+
+Runnable walkthroughs live in [`examples/`](examples/), including the HLM3-Mix 35M K=16 preview.
 
 ## What is this?
 
@@ -179,7 +191,7 @@ load model.pt
 capture 5 polite Thank you so much
 capture 5 polite I really appreciate it
 capture 5 polite That's very kind of you
-inject-concept 5 polite 0.1
+inject-concept 5 polite 2.0
 apply 5
 benchmark
 generate Tell me about the weather

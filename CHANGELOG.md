@@ -2,6 +2,47 @@
 
 All notable changes to `qriton-hlm` are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## v0.11.2 (2026-08-08)
+
+### Added
+
+- README: documented the no-checkpoint sandbox (`load __random_<dim>`) and the `examples/` walkthroughs.
+
+## v0.11.1 (2026-08-08)
+
+### Changed
+
+- Docs: README example cleanup. No code changes.
+
+## v0.11.0 (2026-08-08)
+
+### Added
+
+- **No-checkpoint sandbox**: `load __random_<dim>` instantiates a single random Hopfield W,
+  so the surgery commands can be exercised without downloading any weights.
+- **HLM3-Mix research-preview walkthroughs**: `examples/hlm3_mix_35m_k16.hlm` (DSL) and
+  `examples/hlm3_mix_35m_k16.py` (BasinSurgeon API), plus `examples/README.md`.
+
+### Fixed
+
+- Checkpoints with 0-dim scalar `.gate` buffers now load cleanly (previously only `log_beta`
+  scalars were unsqueezed).
+- The load/`info` summary reports the correct `d` for checkpoints whose config uses
+  `embeddingDim` (or `d_model`) rather than `dModel`.
+
+## v0.10.0 (2026-04-06)
+
+> Reconciled into git on 2026-08-08 — 0.10.0 was published to PyPI from an offline working
+> copy and never committed (git master remained at 0.9.5); the source here was restored from
+> the published sdist so the repository matches what is live.
+
+### Added
+
+- **Concept algebra**: `similarity`, `add`, `subtract`, `analogy`, `compose`, `interpolate`.
+- **Consolidation (sleep cycle)**: `consolidate`, `dream`.
+- **Watermarking**: `watermark_inject`, `watermark_verify`, `watermark_strip_attempt`.
+- `load_model` and additional surgery API surface.
+
 ## v0.9.5 (April 2026)
 
 ### Added
