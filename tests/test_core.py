@@ -15,6 +15,7 @@ from qriton_hlm.core import (
     remove_basin,
     move_basin,
     verify_basin_exists,
+    certify_compact_edit,
     load_W_from_checkpoint,
     BasinSurgeon,
 )
@@ -232,6 +233,8 @@ class TestBasinSurgeon:
         result = surgeon.inject(layer=0, seed=42, strength=0.1)
         assert "exists_after" in result
         assert "cos_after" in result
+        assert "retention" in result
+        assert "applied" in result
 
     def test_remove(self, surgeon):
         result = surgeon.remove(layer=0, seed=42, strength=0.1)
@@ -244,7 +247,7 @@ class TestBasinSurgeon:
         assert "energy" in result
 
     def test_inject_then_verify(self, surgeon):
-        surgeon.inject(layer=0, seed=99, strength=0.5)
+        surgeon.inject(layer=0, seed=99, strength=0.5, force=True)
         result = surgeon.verify(layer=0, seed=99)
         # After injection, the target direction should be closer to a basin
         assert "is_basin" in result
@@ -263,7 +266,7 @@ class TestBasinSurgeon:
         # Need to set backup first
         W_orig = surgeon.get_W(0).clone()
         surgeon._w_backups[0] = W_orig
-        surgeon.inject(layer=0, seed=42, strength=0.1)
+        surgeon.inject(layer=0, seed=42, strength=0.1, force=True)
         result = surgeon.diff(layer=0)
         assert result is not None
         assert result["frobenius"] > 0
@@ -271,7 +274,7 @@ class TestBasinSurgeon:
     def test_restore(self, surgeon):
         W_orig = surgeon.get_W(0).clone()
         surgeon._w_backups[0] = W_orig.clone()
-        surgeon.inject(layer=0, seed=42, strength=0.5)
+        surgeon.inject(layer=0, seed=42, strength=0.5, force=True)
         assert not torch.equal(surgeon.get_W(0), W_orig)
         surgeon.restore(layer=0)
         assert torch.allclose(surgeon.get_W(0), W_orig)
@@ -324,7 +327,7 @@ class TestBasinSurgeonConcepts:
 
 class TestBasinSurgeonPersistence:
     def test_save_checkpoint(self, surgeon, tmp_path):
-        surgeon.inject(layer=0, seed=42, strength=0.1)
+        surgeon.inject(layer=0, seed=42, strength=0.1, force=True)
         path = str(tmp_path / "session.pt")
         result = surgeon.save_checkpoint(path)
         assert result["path"] == path
@@ -333,7 +336,7 @@ class TestBasinSurgeonPersistence:
 
     def test_save_and_load_session(self, surgeon, tmp_path):
         # Inject a basin
-        surgeon.inject(layer=0, seed=42, strength=0.3)
+        surgeon.inject(layer=0, seed=42, strength=0.3, force=True)
         W_modified = surgeon.get_W(0).clone()
 
         # Save
@@ -385,6 +388,38 @@ class TestBasinSurgeonPersistence:
         result = s2.import_concept(path)
         assert result["concept"] == "exportable"
         assert "exportable" in s2._concepts
+
+
+# ── ScaleItUp compact-edit gate ────────────────────────────────
+
+class TestCertifyCompactEdit:
+    def test_identity_edit_is_accepted(self, W, d_model):
+        basins, _, _ = find_basins(W, d_model, num_inits=20, max_iter=40)
+        cert = certify_compact_edit(W, W.clone(), basins)
+        assert cert["accepted"] is True
+        assert cert["promoted"] is False
+        assert cert["K_kept"] == cert["K_protected"]
+
+    def test_empty_protected_is_accepted(self, W):
+        cert = certify_compact_edit(W, W + 0.01 * torch.eye(W.shape[0]), [])
+        assert cert["accepted"] is True
+        assert cert["K_protected"] == 0
+
+    def test_refused_inject_does_not_write_W(self, surgeon):
+        W0 = surgeon.get_W(0).clone()
+        result = surgeon.inject(layer=0, seed=1, strength=5.0, force=False)
+        assert "retention" in result
+        if not result["applied"]:
+            assert torch.equal(surgeon.get_W(0), W0)
+            assert result["retention"]["promoted"] is True
+        else:
+            assert result["retention"]["accepted"] is True
+
+    def test_force_writes_even_when_retention_fails(self, surgeon):
+        W0 = surgeon.get_W(0).clone()
+        result = surgeon.inject(layer=0, seed=2, strength=5.0, force=True)
+        assert result["applied"] is True
+        assert not torch.equal(surgeon.get_W(0), W0)
 
 
 # ── Causal operations ──────────────────────────────────────────

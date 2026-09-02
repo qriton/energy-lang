@@ -19,7 +19,7 @@ Usage:
     surgeon.apply(layer=5)
 """
 
-__version__ = "0.11.2"
+__version__ = "0.12.0"
 
 from qriton_hlm.core import (
     poly_interaction,
@@ -29,6 +29,7 @@ from qriton_hlm.core import (
     remove_basin,
     move_basin,
     verify_basin_exists,
+    certify_compact_edit,
     load_W_from_checkpoint,
     BasinSurgeon,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "remove_basin",
     "move_basin",
     "verify_basin_exists",
+    "certify_compact_edit",
     "load_W_from_checkpoint",
     "BasinSurgeon",
     # db module available as qriton_hlm.db

@@ -69,6 +69,10 @@ softmax attention collapses to a single attractor.
 | `probe <layer> [basin_idx]` | What tokens does a basin activate? (reverse capture) |
 | `landscape <layer>` | Full energy map with population bars |
 
+Landscape writes (`inject` / `remove` / `move` / `strengthen` / `weaken`) are
+applied only when existing attractors still survive the update. If they would
+not, the command is refused. `--force --reason` overrides this for experiments.
+
 ### Modify (change the landscape)
 
 | Command | What it does |

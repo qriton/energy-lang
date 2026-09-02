@@ -2,6 +2,23 @@
 
 All notable changes to `qriton-hlm` are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## v0.12.0 (2026-09-02)
+
+### Changed
+
+- Landscape writes (`inject`, `remove`, `move`, `strengthen`, `weaken`,
+  `inject_concept`) now check that existing attractors still survive before the
+  new weights are kept. If they would not, the layer is left unchanged and the
+  command is refused.
+- CLI refuses the same way unless `--force --reason "..."` is passed.
+- Low-level `inject_basin` / `remove_basin` are unchanged for callers that
+  apply their own checks.
+
+### Added
+
+- `certify_compact_edit(W, W_new, protected_basins)` — retention check used by
+  the high-level API. Results include `retention` (`accepted`, `applied`).
+
 ## v0.11.2 (2026-08-08)
 
 ### Added

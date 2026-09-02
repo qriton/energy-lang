@@ -169,6 +169,83 @@ def move_basin(W, source, destination, degree=3, strength=1.0, beta=7.0):
 
 # ── Verification ─────────────────────────────────────────────────────
 
+def certify_compact_edit(
+    W,
+    W_new,
+    protected_basins,
+    degree=3,
+    beta=7.0,
+    min_cos=0.85,
+    max_iter=80,
+):
+    """Retention certificate for a compact W rewrite.
+
+    Re-converges each protected basin on W_new. The edit is accepted only if
+    every protected well still exists nearby. Hebbian inject_basin remains
+    the proposal; this is the gate.
+    """
+    frobenius = float((W_new - W).norm().item())
+    w_scale = float(W.norm().clamp(min=1e-10).item())
+    if frobenius / w_scale < 1e-8:
+        return {
+            "accepted": True,
+            "applied": False,
+            "layer": "cold",
+            "promoted": False,
+            "reason": "no_op",
+            "compact_edit": "accepted",
+            "K_protected": len(protected_basins) if protected_basins else 0,
+            "K_kept": len(protected_basins) if protected_basins else 0,
+            "lost": [],
+            "frobenius": frobenius,
+            "nk_ratio": None,
+        }
+    if not protected_basins:
+        return {
+            "accepted": True,
+            "applied": False,
+            "layer": "cold",
+            "promoted": False,
+            "reason": "no_protected_basins",
+            "compact_edit": "accepted",
+            "K_protected": 0,
+            "K_kept": 0,
+            "lost": [],
+            "frobenius": frobenius,
+            "nk_ratio": None,
+        }
+
+    kept = 0
+    lost = []
+    worst_cos = 1.0
+    for i, x in enumerate(protected_basins):
+        x_star, _, _ = _converge(x.clone(), W, degree=degree, beta=beta, max_iter=max_iter)
+        y, _, _ = _converge(x_star.clone(), W_new, degree=degree, beta=beta, max_iter=max_iter)
+        if y.norm() < 1e-8 or x_star.norm() < 1e-8:
+            cos = 0.0
+        else:
+            cos = float(F.cosine_similarity(y.unsqueeze(0), x_star.unsqueeze(0)).item())
+        worst_cos = min(worst_cos, cos)
+        if cos >= min_cos:
+            kept += 1
+        else:
+            lost.append({"index": int(i), "cos": cos, "still_basin": False})
+
+    accepted = len(lost) == 0
+    return {
+        "accepted": accepted,
+        "applied": False,
+        "layer": "cold",
+        "promoted": not accepted,
+        "reason": "retention_ok" if accepted else "protected_basin_lost",
+        "compact_edit": "accepted" if accepted else "refused_promoted",
+        "K_protected": len(protected_basins),
+        "K_kept": kept,
+        "lost": lost,
+        "frobenius": frobenius,
+    }
+
+
 def verify_basin_exists(W, target, degree=3, max_iter=100,
                         tau_start=0.9, tau_end=0.1, beta=7.0,
                         eps=5e-3, cos_threshold=0.9):
@@ -251,6 +328,7 @@ class BasinSurgeon:
         self._history = []
 
         self._concepts = {}     # name -> {'states': [...], 'centroid': tensor}
+        self._basin_cache = {}  # layer -> list of protected basin tensors
         self.params = {
             'beta': 7.0,
             'inits': 200,
@@ -411,8 +489,42 @@ class BasinSurgeon:
             'energies': [compute_energy(b, W) for b in basins],
             'populations': [ids.count(i) for i in range(len(basins))],
         }
+        self._basin_cache[layer] = list(basins)
         self._history.append(('survey', layer, results['num_basins']))
         return results
+
+    def _protected_basins(self, layer, W, beta):
+        cached = self._basin_cache.get(layer)
+        if cached:
+            return cached
+        basins, _, _ = find_basins(
+            W, W.shape[0], num_inits=24, max_iter=40,
+            beta=beta, device=self.device)
+        self._basin_cache[layer] = list(basins)
+        return basins
+
+    def _commit_compact(self, layer, W, W_new, force=False):
+        """Cache W_new only if protected basins survive, unless force=True."""
+        beta = self.get_beta(layer)
+        protected = self._protected_basins(layer, W, beta)
+        cert = certify_compact_edit(
+            W, W_new, protected,
+            degree=self.params['degree'], beta=beta,
+        )
+        cert["forced"] = bool(force)
+        if cert["accepted"] or force:
+            if layer not in self._w_backups:
+                self._w_backups[layer] = W.clone()
+            self._w_cache[layer] = W_new
+            self._basin_cache.pop(layer, None)
+            cert["applied"] = True
+            if force and not cert["accepted"]:
+                cert["reason"] = "forced_despite_retention_failure"
+                cert["compact_edit"] = "forced"
+        else:
+            cert["applied"] = False
+            cert["reason"] = "protected_basin_lost"
+        return cert
 
     def _to_basin_scale(self, target, W, beta):
         """Scale a unit-normalized target to the dynamics' operating range
@@ -426,8 +538,8 @@ class BasinSurgeon:
             return t  # dynamics collapsed, return scaled target
         return basin
 
-    def inject(self, layer=0, seed=42, strength=None):
-        """Inject a new basin. Returns dict with before/after stats."""
+    def inject(self, layer=0, seed=42, strength=None, force=False):
+        """Propose a Hebbian inject; commit only if protected basins survive."""
         strength = strength or self.params['strength']
         W = self.get_W(layer)
         d = W.shape[0]
@@ -440,20 +552,23 @@ class BasinSurgeon:
             W, basin_before, beta=beta)
 
         W_new = inject_basin(W, target, strength=strength, beta=beta)
+        cert = self._commit_compact(layer, W, W_new, force=force)
+        applied_W = self.get_W(layer)
 
-        # After injection, find the basin again on the new W
-        basin_after = self._to_basin_scale(target, W_new, beta)
+        # After injection, find the basin again on the (maybe unchanged) W
+        basin_after = self._to_basin_scale(target, applied_W, beta)
         exists_after, _, cos_after, _ = verify_basin_exists(
-            W_new, basin_after, beta=beta)
+            applied_W, basin_after, beta=beta)
 
-        self._w_cache[layer] = W_new
-        self._history.append(('inject', layer, seed, strength))
+        self._history.append(('inject', layer, seed, strength, cert["applied"]))
 
         return {
             'layer': layer, 'seed': seed, 'strength': strength,
             'existed_before': exists_before, 'cos_before': cos_before,
             'exists_after': exists_after, 'cos_after': cos_after,
-            'W_before': W, 'W_after': W_new, 'target': target,
+            'W_before': W, 'W_after': applied_W, 'target': target,
+            'applied': cert["applied"],
+            'retention': cert,
         }
 
     def remove(self, layer=0, seed=42, strength=None):
@@ -472,15 +587,18 @@ class BasinSurgeon:
             target = basins[int(np.argmax(sims))]
 
         W_new = remove_basin(W, target, strength=strength, beta=beta)
+        cert = self._commit_compact(layer, W, W_new, force=False)
+        applied_W = self.get_W(layer)
         exists_after, _, cos_after, _ = verify_basin_exists(
-            W_new, target, beta=beta)
+            applied_W, target, beta=beta)
 
-        self._w_cache[layer] = W_new
-        self._history.append(('remove', layer, seed, strength))
+        self._history.append(('remove', layer, seed, strength, cert["applied"]))
 
         return {
             'layer': layer, 'exists_after': exists_after,
-            'cos_after': cos_after, 'W_after': W_new,
+            'cos_after': cos_after, 'W_after': applied_W,
+            'applied': cert["applied"],
+            'retention': cert,
         }
 
     def move(self, layer=0, seed=42, strength=None):
@@ -501,9 +619,12 @@ class BasinSurgeon:
 
         dest = self._make_target(int(seed) + 1000, d)
         W_new = move_basin(W, source, dest, strength=strength, beta=beta)
-        self._w_cache[layer] = W_new
-        self._history.append(('move', layer, seed, strength))
-        return {'layer': layer, 'W_after': W_new}
+        cert = self._commit_compact(layer, W, W_new, force=False)
+        self._history.append(('move', layer, seed, strength, cert["applied"]))
+        return {
+            'layer': layer, 'W_after': self.get_W(layer),
+            'applied': cert["applied"], 'retention': cert,
+        }
 
     def verify(self, layer=0, seed=42):
         """Check if a basin exists near the target seed direction."""
@@ -675,11 +796,12 @@ class BasinSurgeon:
         exists_before, _, cos_before, _ = verify_basin_exists(
             W, target, beta=beta)
         W_new = inject_basin(W, target, strength=strength, beta=beta)
+        cert = self._commit_compact(layer, W, W_new, force=False)
+        applied_W = self.get_W(layer)
         exists_after, _, cos_after, _ = verify_basin_exists(
-            W_new, target, beta=beta)
+            applied_W, target, beta=beta)
 
-        self._w_cache[layer] = W_new
-        self._history.append(('inject_concept', layer, concept_name, strength))
+        self._history.append(('inject_concept', layer, concept_name, strength, cert["applied"]))
 
         return {
             'concept': concept_name,
@@ -690,6 +812,8 @@ class BasinSurgeon:
             'cos_before': cos_before,
             'exists_after': exists_after,
             'cos_after': cos_after,
+            'applied': cert["applied"],
+            'retention': cert,
         }
 
     def remove_concept(self, layer, concept_name, strength=None):
@@ -924,14 +1048,17 @@ class BasinSurgeon:
 
         strength = self.params['strength'] * factor
         W_new = inject_basin(W, target, strength=strength, beta=beta)
-        self._w_cache[layer] = W_new
-        self._history.append(('strengthen', layer, seed, factor))
+        cert = self._commit_compact(layer, W, W_new, force=False)
+        applied_W = self.get_W(layer)
+        self._history.append(('strengthen', layer, seed, factor, cert["applied"]))
 
         e_before = compute_energy(target, W)
-        e_after = compute_energy(target, W_new)
+        e_after = compute_energy(target, applied_W)
         return {
             'layer': layer, 'energy_before': e_before, 'energy_after': e_after,
             'deepened_by': e_before - e_after,
+            'applied': cert["applied"],
+            'retention': cert,
         }
 
     def weaken(self, layer=0, seed=42, factor=0.5):
@@ -950,14 +1077,17 @@ class BasinSurgeon:
 
         strength = self.params['strength'] * factor
         W_new = remove_basin(W, target, strength=strength, beta=beta)
-        self._w_cache[layer] = W_new
-        self._history.append(('weaken', layer, seed, factor))
+        cert = self._commit_compact(layer, W, W_new, force=False)
+        applied_W = self.get_W(layer)
+        self._history.append(('weaken', layer, seed, factor, cert["applied"]))
 
         e_before = compute_energy(target, W)
-        e_after = compute_energy(target, W_new)
+        e_after = compute_energy(target, applied_W)
         return {
             'layer': layer, 'energy_before': e_before, 'energy_after': e_after,
             'raised_by': e_after - e_before,
+            'applied': cert["applied"],
+            'retention': cert,
         }
 
     def trace(self, layer, text):

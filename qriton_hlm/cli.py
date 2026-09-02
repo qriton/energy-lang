@@ -55,11 +55,21 @@ from qriton_hlm.core import (
     find_basins, compute_energy, poly_interaction,
     inject_basin, remove_basin, move_basin,
     verify_basin_exists, load_W_from_checkpoint,
-    count_hopfield_layers,
+    count_hopfield_layers, certify_compact_edit,
 )
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 VERSION = '0.9.4'
+
+
+def _refuse_compact(op_label, cert):
+    return "\n".join([
+        op_label,
+        f"  {C.red('REFUSED')}: {cert['reason']}",
+        f"  kept {cert['K_kept']}/{cert['K_protected']} protected basins",
+        f"  {C.dim('Existing attractors would not survive this update.')}",
+        f"  {C.dim('Override:')} --force --reason \"...\" to write anyway",
+    ])
 
 # ── ANSI colors ──────────────────────────────────────────────────────
 
@@ -667,6 +677,15 @@ class EnergyLang:
             W, d, num_inits=100, beta=self._get_beta(layer), device=DEVICE)
 
         W_new = inject_basin(W, target, strength=strength)
+        cert = certify_compact_edit(
+            W, W_new, basins_before, beta=self._get_beta(layer),
+        )
+        if not cert["accepted"] and not force:
+            self._log(f"inject {layer} {seed} {strength}", status='REFUSED',
+                      detail=cert["reason"])
+            return _refuse_compact(
+                C.bold(f"Inject L{layer}") + f" seed={seed} α={strength}", cert
+            )
 
         exists_after, _, cos_after, _ = verify_basin_exists(
             W_new, target, beta=self._get_beta(layer))
@@ -676,6 +695,7 @@ class EnergyLang:
         self._last_surgery = {
             'layer': layer, 'W_before': W, 'W_after': W_new,
             'target': target, 'operation': 'inject',
+            'retention': cert,
         }
         if layer not in self._w_backups:
             self._w_backups[layer] = W.clone()
@@ -720,6 +740,15 @@ class EnergyLang:
             target = closest
 
         W_new = remove_basin(W, target, strength=strength)
+        cert = certify_compact_edit(
+            W, W_new, basins_before, beta=self._get_beta(layer),
+        )
+        if not cert["accepted"] and not force:
+            self._log(f"remove {layer} {seed} {strength}", status='REFUSED',
+                      detail=cert["reason"])
+            return _refuse_compact(
+                C.bold(f"Remove L{layer}") + f" seed={seed} α={strength}", cert
+            )
         exists_after, _, cos_after, _ = verify_basin_exists(
             W_new, target, beta=self._get_beta(layer))
         basins_after, _, _ = find_basins(
@@ -728,6 +757,7 @@ class EnergyLang:
         self._last_surgery = {
             'layer': layer, 'W_before': W, 'W_after': W_new,
             'target': target, 'operation': 'remove',
+            'retention': cert,
         }
         if layer not in self._w_backups:
             self._w_backups[layer] = W.clone()
@@ -768,6 +798,15 @@ class EnergyLang:
 
         dest = self._make_target(int(seed) + 1000, d)
         W_new = move_basin(W, source, dest, strength=strength)
+        cert = certify_compact_edit(
+            W, W_new, basins_before, beta=self._get_beta(layer),
+        )
+        if not cert["accepted"]:
+            self._log(f"move {layer} {seed} {strength}", status='REFUSED',
+                      detail=cert["reason"])
+            return _refuse_compact(
+                C.bold(f"Move L{layer}") + f" seed={seed} α={strength}", cert
+            )
 
         src_exists, _, src_cos, _ = verify_basin_exists(W_new, source, beta=self._get_beta(layer))
         dst_exists, _, dst_cos, _ = verify_basin_exists(W_new, dest, beta=self._get_beta(layer))
@@ -962,6 +1001,15 @@ class EnergyLang:
         basins_before, _, _ = find_basins(W, d, num_inits=100, beta=self._get_beta(layer), device=DEVICE)
 
         W_new = inject_basin(W, target, strength=strength)
+        cert = certify_compact_edit(
+            W, W_new, basins_before, beta=self._get_beta(layer),
+        )
+        if not cert["accepted"] and not force:
+            self._log(f"inject-concept {layer} {concept_name} {strength}",
+                      status='REFUSED', detail=cert["reason"])
+            return _refuse_compact(
+                C.bold(f"Inject-concept L{layer} '{concept_name}'"), cert
+            )
 
         exists_after, _, cos_after, _ = verify_basin_exists(W_new, target, beta=self._get_beta(layer))
         basins_after, _, _ = find_basins(W_new, d, num_inits=100, beta=self._get_beta(layer), device=DEVICE)
