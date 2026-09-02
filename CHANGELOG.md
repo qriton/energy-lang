@@ -18,6 +18,8 @@ All notable changes to `qriton-hlm` are documented here. Follows [Semantic Versi
 
 - `certify_compact_edit(W, W_new, protected_basins)` — retention check used by
   the high-level API. Results include `retention` (`accepted`, `applied`).
+- [How to edit](docs/how-to-edit.md) — compact write if it certifies; otherwise
+  land as an explicit slot. The trunk stays frozen.
 
 ## v0.11.2 (2026-08-08)
 

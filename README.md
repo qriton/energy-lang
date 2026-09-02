@@ -73,6 +73,9 @@ Landscape writes (`inject` / `remove` / `move` / `strengthen` / `weaken`) are
 applied only when existing attractors still survive the update. If they would
 not, the command is refused. `--force --reason` overrides this for experiments.
 
+See [How to edit](docs/how-to-edit.md): compact write if it certifies, otherwise
+an explicit slot. The trunk stays frozen.
+
 ### Modify (change the landscape)
 
 | Command | What it does |
