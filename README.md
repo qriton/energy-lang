@@ -186,15 +186,15 @@ Each basin = a causal node. Surgery = the do-operator. The energy landscape beco
 
 Mirrors biological memory consolidation during slow-wave sleep. High-population basins (frequently visited = important) get strengthened. Low-population basins (rarely visited = unimportant) get pruned.
 
-### Watermark (IP Protection) <sup>v0.10</sup>
+### Watermark (experimental) <sup>v0.10</sup>
 
-| Command | What it does |
-|---------|-------------|
-| `watermark inject <key> [marks] [str]` | Embed invisible signature basins using secret key |
-| `watermark verify <key> [marks]` | Check if model carries your watermark |
-| `watermark strip-test <key> [marks]` | Test watermark robustness (self-attack) |
+| Python API | What it does |
+|------------|-------------|
+| `surgeon.watermark_inject(key, num_marks, strength)` | Write signature basins at states derived from a secret key |
+| `surgeon.watermark_verify(key, num_marks)` | Check whether the key's marks are present |
+| `surgeon.watermark_strip_attempt(key, num_marks)` | Try to remove your own marks (self-attack) |
 
-Uses SHA-256 derived seeds across multiple layers. Same key always produces same watermark positions. Each mark is an ordinary gated `inject`. At the default strength (0.05) a 0.13 write rarely creates the mark: on the synthetic landscapes even 0.1 reached 0 of 40 targets. Pass `strength="auto"`, then check each mark's `exists_after` and the gate's verdict. Effects on model quality have not been measured. Without the key, watermarks are indistinguishable from natural basins.
+Each mark is an ordinary gated `inject` at a seed derived from the key with SHA-256, so the same key always gives the same marks. At the default strength (0.05) a 0.13 write rarely creates the mark: on the synthetic landscapes even 0.1 reached 0 of 40 targets. Pass `strength="auto"`, then check each mark's `applied` (the gate kept it) and `exists_after`. `watermark_verify` tests each mark at the state its inject writes, so it depends on the key: on synthetic landscapes a wrong key and an unmarked model found no marks. In 0.12 it found marks for any key, and models signed with 0.12 or earlier generally do not verify now; sign them again. Effects on model quality and robustness have not been measured, and watermarks have not been tested on trained checkpoints.
 
 ### Safety (guards & audit)
 
@@ -351,20 +351,20 @@ print(f"Strengthened: {report['strengthened']}, Pruned: {report['pruned']}")
 dream = surgeon.dream(cycles=3)
 print(f"Dream complete: +{dream['total_strengthened']} -{dream['total_pruned']}")
 
-# --- Watermark (IP Protection) ---
+# --- Watermark (experimental) ---
 
 # Sign your model with watermark basins (each mark is a gated inject)
 wm = surgeon.watermark_inject("my-secret-key-2026", num_marks=5, strength="auto")
 print(f"Marks present: {sum(m['exists_after'] for m in wm['marks'])}/{wm['total_marks']}")
 
-# Verify on any model (e.g., checking a suspected leak)
+# Verify a model loaded in a surgeon (e.g. a suspected leak). Each mark is
+# tested at its own state; another key or an unmarked model finds none.
 result = surgeon.watermark_verify("my-secret-key-2026", num_marks=5)
-print(f"Verified: {result['verified']} ({result['confidence']:.0%} confidence)")
-# -> Verified: True (100% confidence)
+print(f"Verified: {result['verified']} ({result['marks_found']}/{result['marks_total']} marks found)")
 
 # Test robustness — try stripping your own watermarks
 strip = surgeon.watermark_strip_attempt("my-secret-key-2026", num_marks=5)
-print(f"Removed: {strip['removed']}, Survived: {strip['survived']}")
+print(f"Removed: {strip['removed']}, Survived: {strip['survived']}, Absent: {strip['absent']}")
 ```
 
 ## Database Sync — Neural Database Extension

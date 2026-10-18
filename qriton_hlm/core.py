@@ -5,6 +5,7 @@ No external dependencies beyond torch and numpy.
 Works with any checkpoint that has `hopfield.W` parameters.
 """
 
+import hashlib
 import time
 
 import numpy as np
@@ -2203,45 +2204,63 @@ class BasinSurgeon:
         }
 
     # ── Watermark Manager ────────────────────────────────────────────
+    #
+    # A mark is a gated inject at a seed derived from the key. A projected
+    # inject writes the seed direction's sign pattern x 0.9, so that is where
+    # each mark is tested: it is present when that state attracts. The states
+    # depend on the key; another key's are unrelated sign patterns.
+
+    def _watermark_mark(self, secret_key, layer, mark_idx):
+        """Seed of a mark and the state a projected inject at that seed writes."""
+        seed_input = f"{secret_key}:{layer}:{mark_idx}".encode('utf-8')
+        seed = int(hashlib.sha256(seed_input).hexdigest()[:8], 16) & 0x7FFFFFFF
+        W = self.get_W(layer)
+        state = (torch.sign(self._make_target(seed, W.shape[0])) * 0.9).to(W)
+        return seed, state
+
+    def _settles_back(self, layer, state):
+        """Fraction of 5 seeded starts state + 0.1 * ||state|| * randn(d) that
+        settle back onto state (cos > 0.95), the test strength="auto" uses.
+        0 means it does not attract."""
+        return _settle_fraction(self.get_W(layer), state, self.params['degree'],
+                                self.get_beta(layer))
 
     def watermark_inject(self, secret_key, num_marks=3, strength=0.05,
                          layers=None):
-        """Inject invisible watermark basins into the model.
+        """Inject watermark basins at states derived from a secret key.
 
-        Uses the secret key to deterministically generate seed positions
-        across multiple layers. Low strength ensures no quality degradation.
+        Each mark is an ordinary gated inject at a seed derived from the key
+        with SHA-256, so the gate may refuse it. At the default strength
+        (0.05) a projected write rarely creates the mark; pass
+        strength="auto". Effects on model quality have not been measured.
 
         Args:
             secret_key: string secret (hashed to generate seeds)
             num_marks: number of watermark basins per layer
-            strength: injection strength (keep low, 0.03-0.10)
+            strength: inject strength per mark, or "auto"
             layers: list of layers to watermark (None = all cached)
 
         Returns:
-            dict with injection report (does NOT include seeds — those are secret)
+            dict with injection report (does NOT include seeds — those are
+            secret). Each mark reports `applied` (the gate kept the write) and
+            `exists_after`: whether the mark's own state attracts afterwards,
+            the test watermark_verify() applies.
         """
-        import hashlib
-
         if layers is None:
             layers = sorted(self._w_cache.keys())
 
-        # Derive deterministic seeds from secret key
-        key_bytes = secret_key.encode('utf-8')
         marks = []
 
         for layer in layers:
             for mark_idx in range(num_marks):
-                # Each mark gets a unique seed: hash(key + layer + index)
-                seed_input = f"{secret_key}:{layer}:{mark_idx}".encode('utf-8')
-                seed_hash = hashlib.sha256(seed_input).hexdigest()
-                seed = int(seed_hash[:8], 16) & 0x7FFFFFFF
-
+                seed, state = self._watermark_mark(secret_key, layer, mark_idx)
                 result = self.inject(layer=layer, seed=seed, strength=strength)
                 marks.append({
                     'layer': layer,
                     'mark_idx': mark_idx,
                     'energy': result.get('energy'),
-                    'exists_after': result.get('exists_after'),
+                    'applied': result['applied'],
+                    'exists_after': self._settles_back(layer, state) > 0,
                 })
 
         self._history.append(('watermark_inject', len(layers), num_marks,
@@ -2259,6 +2278,14 @@ class BasinSurgeon:
                          threshold=0.7):
         """Verify if a model contains watermarks from the given secret key.
 
+        Each mark is tested at the state its inject writes, the sign pattern
+        of the key's seed direction x 0.9. It is present when at least one of
+        5 seeded starts state + 0.1 * ||state|| * randn(d) settles back onto
+        it (cos > 0.95). The result is deterministic and does not use the
+        global RNG. Marks written in legacy mode, or by 0.12.0 and earlier,
+        reinforced the basin each seed direction settled into rather than
+        these states, so they are generally not found.
+
         Args:
             secret_key: the secret used during injection
             num_marks: must match what was used during injection
@@ -2266,10 +2293,10 @@ class BasinSurgeon:
             threshold: fraction of marks that must be present to confirm
 
         Returns:
-            dict with verification result and confidence
+            dict with `verified`, `confidence` (the fraction of marks
+            present), `marks_found`, `marks_total`, `threshold` and `details`
+            (per mark: `is_present` and the `energy` of the mark's state)
         """
-        import hashlib
-
         if layers is None:
             layers = sorted(self._w_cache.keys())
 
@@ -2279,12 +2306,8 @@ class BasinSurgeon:
 
         for layer in layers:
             for mark_idx in range(num_marks):
-                seed_input = f"{secret_key}:{layer}:{mark_idx}".encode('utf-8')
-                seed_hash = hashlib.sha256(seed_input).hexdigest()
-                seed = int(seed_hash[:8], 16) & 0x7FFFFFFF
-
-                result = self.verify(layer=layer, seed=seed)
-                is_present = result.get('is_basin', False)
+                _, state = self._watermark_mark(secret_key, layer, mark_idx)
+                is_present = self._settles_back(layer, state) > 0
                 marks_total += 1
                 if is_present:
                     marks_found += 1
@@ -2293,7 +2316,7 @@ class BasinSurgeon:
                     'layer': layer,
                     'mark_idx': mark_idx,
                     'is_present': is_present,
-                    'energy': result.get('energy'),
+                    'energy': compute_energy(state, self.get_W(layer)),
                 })
 
         confidence = marks_found / max(marks_total, 1)
@@ -2313,27 +2336,29 @@ class BasinSurgeon:
 
         You'd run this on your own model to test if watermarks survive
         various attacks. In production, an attacker wouldn't have the key.
+        Each present mark gets remove(seed, strength=1.0) through the gate and
+        is then tested again at its own state, as in watermark_verify().
+        Marks that are not present are counted as `absent` and left alone.
 
         Returns:
-            dict with removal attempt results
+            dict with `removed`, `survived`, `absent` and `total` (marks tested)
         """
-        import hashlib
-
         if layers is None:
             layers = sorted(self._w_cache.keys())
 
         removed = 0
         survived = 0
+        absent = 0
 
         for layer in layers:
             for mark_idx in range(num_marks):
-                seed_input = f"{secret_key}:{layer}:{mark_idx}".encode('utf-8')
-                seed_hash = hashlib.sha256(seed_input).hexdigest()
-                seed = int(seed_hash[:8], 16) & 0x7FFFFFFF
+                seed, state = self._watermark_mark(secret_key, layer, mark_idx)
+                if self._settles_back(layer, state) == 0:
+                    absent += 1
+                    continue
 
                 self.remove(layer=layer, seed=seed, strength=1.0)
-                result = self.verify(layer=layer, seed=seed)
-                if result.get('is_basin', False):
+                if self._settles_back(layer, state) > 0:
                     survived += 1
                 else:
                     removed += 1
@@ -2341,7 +2366,8 @@ class BasinSurgeon:
         return {
             'removed': removed,
             'survived': survived,
-            'total': removed + survived,
+            'absent': absent,
+            'total': removed + survived + absent,
         }
 
     # ── Persistence ─────────────────────────────────────────────────

@@ -113,6 +113,16 @@ move more, and denser landscapes (8 concepts in 64 dimensions) leave less room.
 - `HLMSync` seed mode placed rows with Python's `hash()`, which is salted per
   process, so `delete_row` in a later process missed the row. Seeds are now
   SHA-256 of the concept name.
+- `watermark_verify` found marks for any key. It tested the basin each seed
+  direction settles into, and in a layer with basins one exists for every
+  key. It now tests each mark at the state its inject writes, which depends
+  on the key. On a synthetic landscape (d=64, 5 stored concepts, the guard
+  protecting those concepts) the signing key finds its 3 marks, and a wrong
+  key and an unmarked model find none; the old check found 3 of 3 for both.
+  `watermark_inject` reports each mark's `applied`, and its `exists_after`
+  and `watermark_strip_attempt` use the same test, so marks the gate refused
+  read as absent. Models signed with 0.12.0 or earlier generally do not
+  verify now: sign them again with `strength="auto"`.
 
 ## Cost
 

@@ -33,6 +33,10 @@ This file lists every public API change. Measurements are in
    `params['strength']` (measured auto strengths were 0.3–0.5).
 6. CLI scripts: write `auto` as the strength argument (`inject 0 42 auto`,
    `inject-concept 5 polite auto`).
+7. Watermarks: `watermark_verify` now tests each mark at the state its inject
+   writes, so models signed with 0.12.0 or earlier generally no longer verify.
+   Sign them again with `watermark_inject(key, strength="auto")` and check
+   each mark's `applied` and `exists_after` (§3).
 
 ## 1. Package root (`qriton_hlm`)
 
@@ -255,10 +259,22 @@ projected edit with no room returns W unchanged and so reports `no_op`.
 | `guard(layer, max_remove_pct=10.0, max_changed_pct=None, protected=None)` | **adds `max_changed_pct`, `protected`** | `max_changed_pct` (percent) is enforced; `protected` pins the protected set (see §6); each call replaces the layer's settings | **adds `max_changed_pct` (float, %), `num_protected` (int or None)** |
 | `causal_scan(...)`, `causal_counterfactual(...)` | none | knockouts and counterfactual writes use the edit mode. In projected mode the other protected basins' field is preserved, so graphs differ from 0.12.0 (measured on 3 landscapes: 32/43/95 edges vs 36/50/118). Nothing is committed (unchanged) | none |
 | `transplant(...)` | none | goes through `inject_concept` | none |
-| `watermark_inject(secret_key, num_marks=3, strength=0.05, layers=None)` | none | each mark is a gated `inject` at `strength`. At 0.05 a projected write rarely creates the mark; pass `strength="auto"` and check each mark's `exists_after` | none |
-| `watermark_strip_attempt(...)` | none | `remove(strength=1.0)` through the gate (usually refused) | none |
+| `watermark_inject(secret_key, num_marks=3, strength=0.05, layers=None)` | none | each mark is a gated `inject` at `strength`. At 0.05 a projected write rarely creates the mark; pass `strength="auto"` and check each mark's `applied` and `exists_after` | **each mark adds `applied`; `exists_after` now tests the mark's own state** (see below) |
+| `watermark_verify(secret_key, num_marks=3, layers=None, threshold=0.7)` | none | **tests each mark at its own state** (see below). 0.12.0 found marks for any key | none (a detail's `energy` is now the energy of the mark's state) |
+| `watermark_strip_attempt(...)` | none | for each present mark, `remove(strength=1.0)` through the gate (usually refused), then the mark is tested at its own state again. Absent marks are left alone | **adds `absent`**; `total` counts every mark tested |
 
-Result fields keep their 0.12.0 meaning:
+Watermark marks are tested at the state their inject writes: the sign pattern
+of the key's seed direction × 0.9. A mark is present when at least one of 5
+seeded starts `state + 0.1 * ||state|| * randn(d)` settles back onto it (cos >
+0.95), the test the `auto` ladder uses; no global RNG is drawn. 0.12.0 tested
+the basin each seed direction settles into, which in a layer with basins
+exists for every key: a key that was never injected, and an unmarked model,
+verified. Now neither finds marks on the synthetic landscapes tested. Marks
+written in legacy mode, or with 0.12.0 or earlier, reinforced whichever basin
+the seed direction reached, so such models generally do not verify; sign them
+again with `strength="auto"`.
+
+Other result fields keep their 0.12.0 meaning:
 
 - `inject`'s `exists_after` / `cos_after` and `verify()` test the basin the
   seed direction settles into once scaled to the operating range. They do not

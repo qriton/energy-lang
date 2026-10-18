@@ -242,3 +242,47 @@ class TestSurgeonGate:
         s.params['edit_mode'] = 'legacy'
         res = s.inject(0, seed=3, strength=0.1)
         assert 'decision' not in res['retention']
+
+
+class TestWatermark:
+    """Marks are tested at the state their inject writes, so the key matters."""
+
+    def _signed(self, stored):
+        W, _, protected = stored
+        s = BasinSurgeon.from_W(W)
+        s.guard(0, protected=protected)  # protect the stored concepts: marks are kept
+        wm = s.watermark_inject("key-A", num_marks=3, strength="auto")
+        return s, wm
+
+    def test_verify_needs_the_right_key(self, stored):
+        W, _, _ = stored
+        s, wm = self._signed(stored)
+        assert all(m['applied'] and m['exists_after'] for m in wm['marks'])
+        right = s.watermark_verify("key-A", num_marks=3)
+        assert right['verified'] and right['confidence'] == 1.0
+        wrong = s.watermark_verify("key-B", num_marks=3)
+        assert not wrong['verified'] and wrong['marks_found'] == 0
+        unmarked = BasinSurgeon.from_W(W).watermark_verify("key-A", num_marks=3)
+        assert not unmarked['verified'] and unmarked['marks_found'] == 0
+
+    def test_refused_marks_are_not_present(self, stored):
+        W, _, _ = stored
+        s = BasinSurgeon.from_W(W)  # default protected set: the guard refuses marks
+        wm = s.watermark_inject("key-A", num_marks=3, strength="auto")
+        applied = [m['applied'] for m in wm['marks']]
+        assert not all(applied)
+        assert [m['exists_after'] for m in wm['marks']] == applied
+        assert s.watermark_verify("key-A", num_marks=3)['marks_found'] == sum(applied)
+
+    def test_strip_attempt_tests_marks_at_their_state(self, stored):
+        s, _ = self._signed(stored)
+        strip = s.watermark_strip_attempt("key-A", num_marks=3)
+        assert strip['absent'] == 0
+        assert strip['removed'] + strip['survived'] == strip['total'] == 3
+
+    def test_strip_attempt_leaves_unmarked_model_alone(self, stored):
+        W, _, _ = stored
+        s = BasinSurgeon.from_W(W)
+        strip = s.watermark_strip_attempt("key-A", num_marks=3)
+        assert strip == {'removed': 0, 'survived': 0, 'absent': 3, 'total': 3}
+        assert torch.equal(s.get_W(0), W)

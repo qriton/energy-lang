@@ -73,6 +73,16 @@ On synthetic landscapes that store known concepts (d=64/K=5 and d=128/K=10;
   `hash()` of its concept name, which is salted per process, so `delete_row` in
   a later process weakened a different position than `sync_row` had written.
   The seed is now SHA-256 of the concept name, the same in every process.
+- `watermark_verify` found marks for any key. It ran `verify()` per mark, which
+  tests the basin the seed direction settles into, and in a layer with basins
+  one exists for every key. Each mark is now tested at the state its inject
+  writes, the sign pattern of the key's seed direction × 0.9: it is present
+  when at least one of 5 seeded noisy starts there settles back onto it. On a
+  synthetic landscape (d=64, 5 stored concepts, the guard protecting those
+  concepts) the signing key finds its 3 marks, and a wrong key and an unmarked
+  model find none; the old check found 3 of 3 for both. `watermark_inject`'s
+  per-mark `exists_after` reported marks the gate refused as present; it now
+  uses the same test, as does `watermark_strip_attempt`.
 
 ### Added
 
@@ -89,6 +99,8 @@ On synthetic landscapes that store known concepts (d=64/K=5 and d=128/K=10;
   The default cap never binds for the default protected set (at most 64 basins).
 - `HLMSync.stats["refused"]` counts sync/delete writes the gate refused, with a
   warning in the log.
+- `watermark_inject` reports each mark's `applied`. `watermark_strip_attempt`
+  reports `absent` (marks not present, which it leaves alone).
 - `measure_edits.py` and `RESULTS.md`: before/after measurements.
 
 ### Upgrading
@@ -108,6 +120,11 @@ On synthetic landscapes that store known concepts (d=64/K=5 and d=128/K=10;
   the guard usually refuses. Lower it (measured auto strengths were 0.3–0.5).
 - CLI: pass `auto` as the strength (`inject 0 42 auto`). The CLI default is
   `set strength` (0.1), usually too weak to create an attractor.
+- Watermarks: models signed with 0.12.0 or earlier, or in legacy mode,
+  generally do not verify any more. Their marks reinforced whichever basin each
+  seed direction reached, not a state that depends on the key. Sign them again
+  with `watermark_inject(key, strength="auto")` and check each mark's `applied`
+  and `exists_after`.
 
 ## v0.12.0 (2026-09-02)
 
