@@ -39,7 +39,7 @@ This file lists every public API change. Measurements are in
 | | 0.12.0 | 0.13.0 |
 |---|---|---|
 | `__version__` | `"0.12.0"` | `"0.13.0"` |
-| `__all__` | — | adds `"certify_decisions"` (also importable from `qriton_hlm`) |
+| `__all__` | 10 names (`poly_interaction` … `BasinSurgeon`) | the same plus `"certify_decisions"` |
 
 ## 2. Module functions (`qriton_hlm.core`)
 
@@ -69,16 +69,17 @@ inject_basin(W, target, degree=3, strength=1.0, beta=7.0,
   disables protection, which is the 0.13.0 "direct" write.
 - `strength="auto"` (new; any mode) tries `AUTO_STRENGTHS = (0.05, 0.1, 0.15,
   0.2, 0.3, 0.4, 0.5, 0.7, 1.0, 1.5, 2.0)` in order. It returns the first write
-  after which 5 seeded starts at `pattern` plus 10% noise all settle back onto
-  it (cos > 0.95). If no rung succeeds it returns the 2.0 write without raising.
+  after which 5 seeded starts `pattern + 0.1 * ||pattern|| * randn(d)` all
+  settle back onto it (cos > 0.95). If no rung succeeds it returns the 2.0
+  write without raising.
   In legacy mode the check uses `sign(target) * 0.9` too.
 - Returns `W` itself (same object, unchanged) when `target` has norm < 1e-8,
   or when there is **no room**: the protected `f(b)` span every direction the
   write needs, typically with at least as many protected states as dimensions.
 - `mode` other than `"projected"` / `"legacy"` raises `ValueError`.
 - `mode="legacy"` reproduces 0.12.0 bit for bit (240/240 rows in RESULTS.md):
-  converge from the target scaled to norm `0.5 * sqrt(d)`, then reinforce
-  wherever it lands. `protected` is ignored.
+  converge from the target (rescaled to norm `0.5 * sqrt(d)` if its norm is
+  below 2), then reinforce wherever it lands. `protected` is ignored.
 
 ### `remove_basin`
 
@@ -97,7 +98,7 @@ remove_basin(W, target, degree=3, strength=1.0, beta=7.0,
   `b*`: the basin itself, its mirror, and mixtures built from it. A removal
   cannot leave them unchanged.
 - `strength="auto"` returns the first rung after which neither `b*` nor `-b*`
-  attracts (0 of 5 seeded noisy starts settle back).
+  attracts: 0 of 5 seeded starts `±b* + 0.1 * ||b*|| * randn(d)` settle back.
 - Returns `W` unchanged if `b*` collapses to zero (as before), or if there is
   no room.
 
@@ -206,7 +207,8 @@ Every write method builds `W_new` and keeps it only if it passes:
 The protected set of a layer is chosen in this order:
 
 1. the set pinned with `guard(layer, protected=...)`;
-2. the basins stored by the last `survey(layer)` (as in 0.12.0);
+2. the basins stored for the layer by the last `survey(layer)` or found for an
+   earlier edit (as in 0.12.0);
 3. `find_basins` with 64 starts and 60 iterations (projected), or 24 and 40
    (legacy).
 
