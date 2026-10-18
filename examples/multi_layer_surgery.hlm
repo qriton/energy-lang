@@ -1,6 +1,8 @@
 # multi_layer_surgery.elang — Program multiple layers
 #
 # Inject basins at different layers and see cumulative effect.
+# Each inject is gated: if it would disturb the layer's existing basins it is
+# REFUSED and that layer stays unchanged.
 
 load output-hlm3-large-ffn/model.pt
 set tokens 20
@@ -11,14 +13,12 @@ generate Once upon a time
 # Survey all layers first
 survey-all
 
-# Inject into shallow layer (smooth mixing)
-set strength 0.05
-inject 0 100
+# Inject into shallow layer (smooth mixing); auto picks the strength
+inject 0 100 auto
 apply 0
 
 # Inject into deep layer (sharp categorization)
-set strength 0.2
-inject 7 200
+inject 7 200 auto
 apply 7
 
 # Generate with both layers modified

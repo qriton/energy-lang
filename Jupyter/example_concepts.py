@@ -50,7 +50,8 @@ def main():
 
     # --- Inject ---
     print("\nInjecting 'professional'...")
-    result = surgeon.inject_concept(layer=L, concept_name='professional', strength=0.1)
+    result = surgeon.inject_concept(layer=L, concept_name='professional')  # auto, gated
+    print(f"  Kept: {result['applied']} ({result['retention']['reason']})")
     print(f"  Before: {result['existed_before']} -> After: {result['exists_after']}")
 
     # --- Apply + benchmark ---

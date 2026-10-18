@@ -19,13 +19,19 @@ hlm:model> capture 5 polite Thank you so much for your help
 hlm:model> capture 5 polite I really appreciate your patience
   -> Added to concept 'polite' (2 samples)
 
-hlm:model> inject-concept 5 polite 2.0
-  Injected 'polite' at L5 as an attractor (strength 2.0)
+hlm:model> inject-concept 5 polite auto
+Inject concept 'polite' (2 samples) into L5 α=auto
+  Before: 41 basins, concept is basin: False (cos=0.3100)
+  After:  42 basins (+1), concept is basin: True (cos=0.9900)
+  >> Concept successfully injected!
 
 hlm:model> apply 5
 hlm:model> generate Tell me about the weather
   I'd be happy to share! The weather today is...
 ```
+
+(Illustrative session.) If a write would disturb the basins already there, the
+command prints `REFUSED` and leaves the layer unchanged.
 
 ## Install
 
@@ -56,6 +62,38 @@ This only works because HLM uses polynomial Hopfield dynamics that create
 **multiple stable basins** per layer. Transformers can't do this — their
 softmax attention collapses to a single attractor.
 
+## How an edit works (0.13)
+
+- **It writes at the target.** An inject adds the target's sign pattern as an
+  attractor. The write is projected so that the field at every *protected*
+  basin, `W f(b)`, does not change. Remove and move work the same way.
+- **It picks its own strength.** With `strength="auto"` (the Python default;
+  pass `auto` in the CLI) the smallest strength that does the edit is used.
+- **It is gated.** A write is kept only if the protected basins still exist and
+  at most **2%** of their decisions change. Decisions here are noisy cues of
+  each basin, settled by the model's own dynamics. Otherwise the edit is
+  refused and the layer stays as it was. Python results say `applied: True` or
+  `False`.
+
+Measured on synthetic landscapes with known concepts (20 per row, see
+[RESULTS.md](RESULTS.md)):
+
+| | 0.12 | 0.13 |
+|---|---|---|
+| inject reaches its target | 0% (any strength tried) | 100% (auto strength) |
+| other concepts' cues changed by an inject | 37–39% (strength 0.5) | 0% (auto), 1% (0.5) |
+| remove reaches its target / other cues changed | 100% / 2% at 0.5, but `BasinSurgeon.remove` was always refused | 100% / 1% (auto) |
+
+These are synthetic results; trained checkpoints are being measured. By
+default the protected basins are everything a random-start survey finds,
+spurious mixtures included, and that makes the gate strict: at auto strength it
+accepted 15–50% of edits, against 90–100% when only the real concepts were
+protected. Use `guard(layer, protected=...)` to protect what matters. Edits also
+cost more than in 0.12 because the gate re-settles its probes.
+
+Upgrading from 0.12: see [MIGRATION.md](MIGRATION.md). `mode="legacy"` keeps
+the 0.12 behaviour.
+
 ## Operations — Energy Language
 
 ### Observe (read the landscape)
@@ -69,9 +107,12 @@ softmax attention collapses to a single attractor.
 | `probe <layer> [basin_idx]` | What tokens does a basin activate? (reverse capture) |
 | `landscape <layer>` | Full energy map with population bars |
 
-Landscape writes (`inject` / `remove` / `move` / `strengthen` / `weaken`) are
-applied only when existing attractors still survive the update. If they would
-not, the command is refused. `--force --reason` overrides this for experiments.
+Landscape writes (`inject`, `remove`, `move`, `strengthen`, `weaken`,
+`inject-concept`, `remove-concept`, `causal intervene`) are applied only if the
+protected basins survive and at most 2% of their decisions change. Otherwise the
+command is refused and the layer is left unchanged. `--force --reason`
+overrides this for experiments on `inject`, `remove`, `inject-concept` and
+`remove-concept`.
 
 See [How to edit](docs/how-to-edit.md): compact write if it certifies, otherwise
 an explicit slot. The trunk stays frozen.
@@ -80,19 +121,23 @@ an explicit slot. The trunk stays frozen.
 
 | Command | What it does |
 |---------|-------------|
-| `inject <layer> <seed> [str]` | Create a new attractor |
-| `remove <layer> <seed> [str]` | Destroy an attractor |
-| `move <layer> <seed> [str]` | Relocate an attractor |
-| `strengthen <layer> <seed> [f]` | Deepen an existing basin |
-| `weaken <layer> <seed> [f]` | Make a basin shallower |
+| `inject <layer> <seed> [str\|auto]` | Create a new attractor |
+| `remove <layer> <seed> [str\|auto]` | Destroy an attractor |
+| `move <layer> <seed> [str\|auto]` | Relocate an attractor |
+| `strengthen <layer> <seed> [f]` | Deepen an existing basin (strength × f) |
+| `weaken <layer> <seed> [f]` | Make a basin shallower (strength × f) |
+
+`auto` uses the smallest strength that does the edit. Without it, the strength
+is `set strength` (default 0.1), which is usually too weak to create a new
+attractor (0 of 40 targets at 0.1 on the synthetic landscapes).
 
 ### Concept (semantic operations)
 
 | Command | What it does |
 |---------|-------------|
 | `capture <layer> <concept> <text>` | Extract what a concept looks like in the model |
-| `inject-concept <layer> <concept> [s]` | Program a captured concept as a new attractor |
-| `remove-concept <layer> <concept> [s]` | Remove a concept from the model |
+| `inject-concept <layer> <concept> [s\|auto]` | Program a captured concept as a new attractor |
+| `remove-concept <layer> <concept> [s\|auto]` | Remove a concept from the model |
 | `blend <a> <b> <new> [ratio]` | Mix two concepts (e.g. 70% polite + 30% formal) |
 | `concepts` | List all captured concepts |
 | `export-concept <name> <path>` | Save concept as portable file |
@@ -149,7 +194,7 @@ Mirrors biological memory consolidation during slow-wave sleep. High-population 
 | `watermark verify <key> [marks]` | Check if model carries your watermark |
 | `watermark strip-test <key> [marks]` | Test watermark robustness (self-attack) |
 
-Uses SHA-256 derived seeds across multiple layers. Low strength (0.03-0.05) = invisible to model quality. Same key always produces same watermark positions. Without the key, watermarks are indistinguishable from natural basins.
+Uses SHA-256 derived seeds across multiple layers. Same key always produces same watermark positions. Each mark is an ordinary gated `inject`. At the default strength (0.05) a 0.13 write rarely creates the mark: on the synthetic landscapes even 0.1 reached 0 of 40 targets. Pass `strength="auto"`, then check each mark's `exists_after` and the gate's verdict. Effects on model quality have not been measured. Without the key, watermarks are indistinguishable from natural basins.
 
 ### Safety (guards & audit)
 
@@ -161,7 +206,7 @@ Uses SHA-256 derived seeds across multiple layers. Low strength (0.03-0.05) = in
 | `benchmark` | Measure perplexity impact of surgery |
 | `history` | Show operation log with OK/BLOCKED status |
 
-Guards are pre-execution checks. If violated, the operation does not start — weights are never touched. Override with `--force --reason "justification"` (logged permanently).
+Guards are pre-execution checks. If violated, the operation does not start — weights are never touched. Override with `--force --reason "justification"` (logged permanently). `strength-cap` does not apply to `auto`. After a write is computed, the decision gate described above checks it as well.
 
 ### Verify & Generate
 
@@ -198,14 +243,15 @@ load model.pt
 capture 5 polite Thank you so much
 capture 5 polite I really appreciate it
 capture 5 polite That's very kind of you
-inject-concept 5 polite 2.0
+inject-concept 5 polite auto
 apply 5
 benchmark
 generate Tell me about the weather
 restore 5
 ```
 
-Run with: `qriton-hlm --script make_polite.hlm`
+Run with: `qriton-hlm --script make_polite.hlm`. If the gate refuses the
+inject, the script continues and `apply` writes the unchanged layer.
 
 ## Python API
 
@@ -218,9 +264,17 @@ surgeon = BasinSurgeon.from_checkpoint("model.pt", device="cuda")
 surgeon.capture(layer=5, text="Thank you so much", concept_name="polite")
 surgeon.capture(layer=5, text="I really appreciate it", concept_name="polite")
 
-# Inject that concept as a new attractor
-result = surgeon.inject_concept(layer=5, concept_name="polite", strength=0.1)
-print(f"Concept injected: {result['exists_after']}")
+# Inject that concept as a new attractor (strength="auto" by default).
+# The write is kept only if it passes the gate; otherwise W is unchanged.
+result = surgeon.inject_concept(layer=5, concept_name="polite")
+print(f"Kept: {result['applied']} ({result['retention']['reason']})")
+if not result["applied"]:
+    print("Probes that would move:", result["retention"]["decision"]["changed"][:10])
+
+# Protect only the basins you know are real concepts (default: every basin
+# a random-start survey finds, which makes the gate strict)
+basins = surgeon.survey(layer=5)["basins"]
+surgeon.guard(layer=5, protected=[basins[0], basins[3]])
 
 # Blend two concepts
 surgeon.blend("polite", "formal", "professional", ratio=0.6)
@@ -258,9 +312,11 @@ graph = surgeon.causal_scan(layer=5, threshold=0.15)
 for edge in graph['edges']:
     print(f"B{edge['source']} → B{edge['target']}  drift={edge['drift']:.3f}")
 
-# do(X) — intervene on basin 3, measure downstream effects
-result = surgeon.causal_intervene(layer=5, basin_idx=3, operation='remove')
-print(f"Affected: {result['num_affected']} basins")
+# do(X) — intervene on basin 3, measure downstream effects.
+# Kept only if it passes the gate (force=True to keep it anyway); strength
+# comes from surgeon.params['strength'] (1.0) unless given.
+result = surgeon.causal_intervene(layer=5, basin_idx=3, operation='remove', strength=0.3)
+print(f"Affected: {result['num_affected']} basins, kept: {result['applied']}")
 
 # Counterfactual: what if basin 3 had been inverted? (non-destructive)
 cf = surgeon.causal_counterfactual(layer=5, basin_idx=3, modification='invert')
@@ -285,9 +341,10 @@ for step in path['steps']:
 
 # --- Consolidation (Sleep Cycle) ---
 
-# Single layer: strengthen important basins, prune weak ones
+# Single layer: strengthen important basins, prune weak ones.
+# The whole pass is gated: kept entirely or not at all.
 report = surgeon.consolidate(layer=5, strengthen_factor=1.5, prune_threshold=0.3)
-print(f"Basins: {report['basins_before']} -> {report['basins_after']}")
+print(f"Basins: {report['basins_before']} -> {report['basins_after']}, kept: {report['applied']}")
 print(f"Strengthened: {report['strengthened']}, Pruned: {report['pruned']}")
 
 # Full sleep: all layers, multiple passes
@@ -296,8 +353,9 @@ print(f"Dream complete: +{dream['total_strengthened']} -{dream['total_pruned']}"
 
 # --- Watermark (IP Protection) ---
 
-# Sign your model with an invisible watermark
-surgeon.watermark_inject("my-secret-key-2026", num_marks=5, strength=0.05)
+# Sign your model with watermark basins (each mark is a gated inject)
+wm = surgeon.watermark_inject("my-secret-key-2026", num_marks=5, strength="auto")
+print(f"Marks present: {sum(m['exists_after'] for m in wm['marks'])}/{wm['total_marks']}")
 
 # Verify on any model (e.g., checking a suspected leak)
 result = surgeon.watermark_verify("my-secret-key-2026", num_marks=5)
@@ -323,8 +381,12 @@ with HLMSync.from_config("hlm_sync_config.json") as syncer:
     syncer.delete_row("Products", 1)
 
     print(syncer.stats)
-    # {'synced': 5, 'deleted': 1, 'errors': 0}
+    # {'synced': 5, 'deleted': 1, 'errors': 0, 'refused': 0, ...}
 ```
+
+Every sync and delete is a gated edit. A write the gate refuses leaves the
+landscape unchanged, is counted in `stats['refused']` and is logged as a
+warning.
 
 ```bash
 # Install with MSSQL support

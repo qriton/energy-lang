@@ -16,13 +16,9 @@ landscape 3
 landscape 4
 landscape 5
 
-# Set safety guards (max 10% basin removal per layer)
-guard 0 10
-guard 1 10
-guard 2 10
-guard 3 10
-guard 4 10
-guard 5 10
+# Safety: every write is gated automatically (protected basins must survive and
+# at most 2% of their decisions may change). Show the pre-execution guards:
+guards
 
 # Baseline benchmark
 benchmark

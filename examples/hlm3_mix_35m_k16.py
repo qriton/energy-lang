@@ -53,15 +53,29 @@ def capture_concept(
 
 
 def inject_and_verify(
-    surgeon: BasinSurgeon, layer: int, name: str, strength: float
+    surgeon: BasinSurgeon, layer: int, name: str, strength
 ) -> None:
     _print_header(f"Inject '{name}' at L{layer} (strength={strength})")
-    surgeon.guard(layer=layer, max_remove_pct=10.0)
-    surgeon.inject_concept(layer=layer, concept_name=name, strength=strength)
+    # Kept only if the layer's existing basins survive and at most 2% of their
+    # decisions change; otherwise W is left unchanged (applied=False).
+    result = surgeon.inject_concept(layer=layer, concept_name=name, strength=strength)
+    retention = result["retention"]
+    print(f"  Kept: {result['applied']} ({retention['reason']})")
+    if "decision" in retention:
+        decision = retention["decision"]
+        print(f"  Decisions changed: {decision['changed_fraction']:.1%} "
+              f"(limit {decision['max_changed']:.0%})")
+    if not result["applied"]:
+        print(f"  L{layer} unchanged.")
+        return
     surgeon.apply(layer=layer)
     diff = surgeon.diff(layer=layer)
-    print(f"  Frobenius delta: {diff.get('frobenius_delta'):.4f}")
-    print(f"  Affected entries: {diff.get('pct_changed', 0):.2%}")
+    print(f"  Frobenius delta: {diff['frobenius']:.4f}")
+    print(f"  Relative change: {diff['relative_pct']:.2f}%")
+
+
+def _strength(value: str):
+    return value if value == "auto" else float(value)
 
 
 def main() -> None:
@@ -69,7 +83,8 @@ def main() -> None:
     parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT)
     parser.add_argument("--layer", type=int, default=4)
     parser.add_argument("--concept", default="formal")
-    parser.add_argument("--strength", type=float, default=0.08)
+    parser.add_argument("--strength", type=_strength, default="auto",
+                        help='A number, or "auto" (smallest strength that does the edit).')
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     parser.add_argument(
         "--prompt",

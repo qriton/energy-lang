@@ -21,8 +21,9 @@ capture 5 concise Three reasons: speed, cost, reliability.
 blend polite technical polite-tech 0.5
 blend polite-tech concise assistant 0.8
 
-# Inject the blended persona
-inject-concept 5 assistant 0.1
+# Inject the blended persona (auto strength; REFUSED and unchanged if it
+# would disturb the existing basins)
+inject-concept 5 assistant auto
 apply 5
 
 # Test

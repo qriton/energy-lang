@@ -3,6 +3,12 @@
 Each example is a self-contained walkthrough of the same workflow:
 **observe → modify → apply → verify → restore**.
 
+Since 0.13 every modify step is gated. A write is kept only if the layer's
+existing basins survive and at most 2% of their decisions change. Otherwise it
+prints `REFUSED`, the layer stays unchanged, and the script carries on. The
+examples pass `auto` as the strength, so the smallest strength that does the
+edit is used.
+
 | File | What it shows | Target model |
 |---|---|---|
 | [`hello_basins.hlm`](hello_basins.hlm) | Minimum viable energy-language program. Single-layer inject / apply / restore. | Any HLM3 checkpoint |
@@ -38,4 +44,5 @@ against it.
 Verified locally against the released checkpoint
 (`model/model.pt`, 27.6M trainable params, 8 Hopfield layers): full load,
 `survey-all`, `capture` / `inject-concept` / `apply` / `restore`, and
-`generate` all work end-to-end.
+`generate` all work end-to-end. That check predates 0.13 and has not been re-run
+with the new edits; under the gate the `inject-concept` step may now be refused.

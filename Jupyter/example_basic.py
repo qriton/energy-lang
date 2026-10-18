@@ -24,9 +24,10 @@ print(f"Basins found: {survey['num_basins']}")
 for i in range(min(5, survey['num_basins'])):
     print(f"  B{i} E={survey['energies'][i]:+.4f} pop={survey['populations'][i]}")
 
-# --- Inject ---
-result = surgeon.inject(layer=0, seed=42, strength=0.1)
-print(f"\nInject: existed={result['existed_before']} -> exists={result['exists_after']}")
+# --- Inject (strength="auto"; kept only if it passes the gate) ---
+result = surgeon.inject(layer=0, seed=42)
+print(f"\nInject: kept={result['applied']} ({result['retention']['reason']}), "
+      f"existed={result['existed_before']} -> exists={result['exists_after']}")
 
 # --- Verify ---
 v = surgeon.verify(layer=0, seed=42)

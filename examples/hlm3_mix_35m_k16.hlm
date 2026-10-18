@@ -45,11 +45,11 @@ capture 4 formal Per the established protocol the matter was referred onward
 # ---------------------------------------------------------------------------
 # 5. Inject the captured concept as a new attractor
 # ---------------------------------------------------------------------------
-# A small strength (0.05 - 0.10) is enough on a 35M model. Larger values
-# can collapse neighbouring basins, which the `guard` step below will catch.
-set strength 0.08
-guard 4 10
-inject-concept 4 formal
+# `auto` picks the smallest strength that makes the concept an attractor.
+# Since 0.13 the write is kept only if the layer's existing basins survive and
+# at most 2% of their decisions change; otherwise it prints REFUSED and L4
+# stays unchanged (the rest of the script still runs).
+inject-concept 4 formal auto
 
 # ---------------------------------------------------------------------------
 # 6. Apply the modified W to the live model and inspect the delta
