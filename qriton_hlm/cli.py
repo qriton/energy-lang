@@ -51,6 +51,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+from qriton_hlm import __version__ as VERSION
 from qriton_hlm.core import (
     find_basins, compute_energy, poly_interaction,
     inject_basin, remove_basin, move_basin,
@@ -60,7 +61,6 @@ from qriton_hlm.core import (
 )
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-VERSION = '0.9.4'
 
 
 def _refuse_compact(op_label, cert):
