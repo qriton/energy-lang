@@ -8,13 +8,13 @@ decision-stability guard that refuses edits which would move more than 2% of
 the protected basins' decisions.
 
 The default behaviour changes, so this is a 0.x minor release. Upgrade notes,
-with every API change, are in [MIGRATION.md](MIGRATION.md).
+with every API change, are in [MIGRATION.md](https://github.com/qriton/energy-lang/blob/v0.13.0/MIGRATION.md).
 `mode="legacy"` reproduces 0.12.0's writes.
 
 ## Measured
 
 On synthetic landscapes that store known concepts (d=64/K=5 and d=128/K=10,
-20 landscapes per row; [RESULTS.md](RESULTS.md)):
+20 landscapes per row; [RESULTS.md](https://github.com/qriton/energy-lang/blob/v0.13.0/RESULTS.md)):
 
 | | 0.12.0 inject (strength 0.5) | 0.13.0 inject (strength auto, ≈0.43) |
 |---|---|---|
