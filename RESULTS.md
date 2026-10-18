@@ -1,6 +1,10 @@
 # Energy Language edits: measured before and after the fix
 
-qriton-hlm 0.12.0 (tag `pristine-0.12.0`) compared with this branch.
+qriton-hlm 0.12.0 (tag `pristine-0.12.0`) compared with the fix released in 0.13.0,
+measured at commit af316dd. The later 0.13.0 changes leave these rows as they are:
+re-running `measure_edits.py --mode projected --trials 2 --auto` on the 0.13.0 code
+reproduces the d=64 rows of trials 0–1 bit for bit (32/32). The probe cap never binds
+here (at most 64 protected basins) and the no-room case does not occur.
 Script: `measure_edits.py`. Raw rows: `results/*.json`. Tables: `results/make_table.py`.
 
 ## Setup
