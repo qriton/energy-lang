@@ -6,7 +6,9 @@ Each DB row becomes a named concept (attractor basin) that can be edited,
 strengthened, weakened, or removed without touching the source database.
 
 Architecture:
-    SQL DB (source of truth) → HLMSync → BasinSurgeon (editable semantic layer)
+    SQL DB (source of truth) → HLMSync → BasinSurgeon (named concept basins)
+
+Sync mirrors rows; it is not a retrieval or search feature.
 
 The sync requires a loaded model because capture() runs text through the
 network to find the natural attractor state. Without model inference, the

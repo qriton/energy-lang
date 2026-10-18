@@ -381,7 +381,7 @@ strip = surgeon.watermark_strip_attempt("my-secret-key-2026", num_marks=5)
 print(f"Removed: {strip['removed']}, Survived: {strip['survived']}, Absent: {strip['absent']}")
 ```
 
-## Database Sync — Neural Database Extension
+## Database Sync
 
 Mirror rows of a SQL database into an energy landscape as named concept basins:
 
@@ -407,7 +407,7 @@ warning.
 pip install qriton-hlm[db]
 ```
 
-SQL stays the source of truth. See the [Database Sync docs](https://hlm.qriton.com/energy-language/database-sync) for configuration and sync strategies.
+SQL stays the source of truth. Sync mirrors rows into the landscape; it is not a retrieval or search feature. See the [Database Sync docs](https://hlm.qriton.com/energy-language/database-sync) for configuration and sync strategies.
 
 ## Compatibility
 
