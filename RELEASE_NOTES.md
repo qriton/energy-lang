@@ -163,4 +163,4 @@ pip install --upgrade qriton-hlm==0.13.0
 ```
 
 Artifacts: `qriton_hlm-0.13.0.tar.gz` and `qriton_hlm-0.13.0-py3-none-any.whl`
-(`twine check --strict` passed). SHA-256 sums are in `dist/SHA256SUMS`.
+(`twine check --strict` passed). Their SHA-256 sums are attached as `SHA256SUMS`.
