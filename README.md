@@ -1,38 +1,42 @@
 # Qriton HLM — Energy Language
 
-**Program neural networks by shaping energy landscapes.**
-
-The first tool that lets you directly program a neural network's behavior —
-not train, not fine-tune, not prompt-engineer. **Program.**
-
-> *"Energy minima as a programming language — in a completely new fashion."*
-> — **John J. Hopfield**, March 2026
+Energy Language is a toolkit for inspecting and editing polynomial Hopfield
+networks. It surveys the basins (stable states) of a Hopfield layer and edits
+the layer's weights directly: inject, remove or move a basin. Every write made
+through the CLI or `BasinSurgeon` is checked before it is kept, and `restore`
+returns a layer to its original weights exactly.
 
 ```
 $ qriton-hlm -c model.pt
 
-hlm:model> capture 5 polite Thank you so much for your help
-  Captured L5: "Thank you so much for your help"
-  Energy: -12.34 | Basin: True (cos=0.97, 23 iters)
-  -> Added to concept 'polite' (1 samples)
+hlm:model> survey 0
+Layer 0: 15 basins  (200 inits, β=7.0, 0.2s)
+  W: 64×64, spectral=1.3867, avg convergence: 10.8 iters
 
-hlm:model> capture 5 polite I really appreciate your patience
-  -> Added to concept 'polite' (2 samples)
+  B 0  E=+13.6172  pop= 33 (16.5%)  █████
+  B 1  E=+14.8441  pop= 24 (12.0%)  ████
+  ...
 
-hlm:model> inject-concept 5 polite auto
-Inject concept 'polite' (2 samples) into L5 α=auto
-  Before: 41 basins, concept is basin: False (cos=0.3100)
-  After:  42 basins (+1), concept is basin: True (cos=0.9900)
-  >> Concept successfully injected!
+hlm:model> inject 0 3 auto
+Inject L0 seed=3 α=auto
+  Before: 13 basins, target is basin: False (cos=-0.0951)
+  After:  14 basins (+1), target is basin: True (cos=1.0000)
+  >> Basin successfully programmed!
 
-hlm:model> apply 5
-hlm:model> generate Tell me about the weather
-  I'd be happy to share! The weather today is...
+hlm:model> inject 0 10 auto
+Inject L0 seed=10 α=auto
+  REFUSED: decisions_changed
+  kept 14/14 protected basins
+  decisions changed: 3.0% of 896 probes (limit 2%)
+  Other decisions would change with this update.
+  Override: --force --reason "..." to write anyway
 ```
 
-(Illustrative session, not recorded output.) If a write would disturb the basins
-already there, the command prints `REFUSED` and leaves the layer unchanged.
-Validation so far is on synthetic landscapes. Validation on trained HLM3
+Real output on a synthetic checkpoint (d=64, 5 stored concepts). The first
+inject was kept. The second would have changed 3.0% of the existing basins'
+decisions, more than the 2% budget, so the command printed `REFUSED` and left
+the layer unchanged. Basin counts come from random starts, so they vary between
+runs. Validation so far is on synthetic landscapes. Validation on trained HLM3
 checkpoints is in progress; early results show the decision guard refusing
 edits that would change more than its budget. Details will follow.
 
@@ -58,12 +62,12 @@ Runnable walkthroughs live in [`examples/`](examples/), including the HLM3-Mix 3
 
 ## What is this?
 
-Every AI framework today has one way to change model behavior: **training**.
-Qriton HLM adds a second: **surgery**.
+Changing a trained model's behaviour usually means more training. Energy
+Language takes a different route for Hopfield layers: it edits their weights
+directly, one basin at a time (basin surgery).
 
-This only works because HLM uses polynomial Hopfield dynamics that create
-**multiple stable basins** per layer. Transformers can't do this — their
-softmax attention collapses to a single attractor.
+This relies on polynomial Hopfield dynamics, which can hold **several stable
+basins** per layer.
 
 ## How an edit works (0.13)
 
@@ -76,7 +80,10 @@ softmax attention collapses to a single attractor.
   at most **2%** of their decisions change. Decisions here are noisy cues of
   each basin, settled by the model's own dynamics. Otherwise the edit is
   refused and the layer stays as it was. Python results say `applied: True` or
-  `False`.
+  `False`. The gate covers the CLI and the `BasinSurgeon` methods. The
+  module-level `inject_basin`, `remove_basin` and `move_basin` return a
+  proposed W without checking it (check it with `certify_decisions`), and
+  `force=True` keeps a refused write.
 
 Measured on synthetic landscapes with known concepts (20 per row, see
 [RESULTS.md](RESULTS.md)):
@@ -119,8 +126,8 @@ command is refused and the layer is left unchanged. `--force --reason`
 overrides this for experiments on `inject`, `remove`, `inject-concept` and
 `remove-concept`.
 
-See [How to edit](docs/how-to-edit.md): compact write if it certifies, otherwise
-an explicit slot. The trunk stays frozen.
+See [How to edit](docs/how-to-edit.md) for what the gate checks and what to do
+when it refuses an edit.
 
 ### Modify (change the landscape)
 
@@ -180,7 +187,7 @@ attractor (0 of 40 targets at 0.1 on the synthetic landscapes).
 | `causal intervene <layer> <basin> [op]` | do(X) — intervene on a basin, measure downstream effects |
 | `causal counterfactual <layer> <basin> [mod]` | "What if X was different?" (non-destructive) |
 
-Each basin = a causal node. Surgery = the do-operator. The energy landscape becomes a programmable structural causal model. See [Causal Programming Docs](https://github.com/qriton/energy-lang/blob/master/docs/causal.md) for the full framework.
+Each basin is treated as a causal node and an edit as the do-operator. See [Causal Programming Docs](https://github.com/qriton/energy-lang/blob/master/docs/causal.md) for the method.
 
 ### Consolidation (Sleep Cycle) <sup>v0.10</sup>
 
@@ -189,7 +196,9 @@ Each basin = a causal node. Surgery = the do-operator. The energy landscape beco
 | `consolidate <layer> [str_f] [prune_t]` | Memory consolidation: strengthen popular basins, prune weak ones |
 | `dream [cycles]` | Full sleep cycle across all layers, multiple passes |
 
-Mirrors biological memory consolidation during slow-wave sleep. High-population basins (frequently visited = important) get strengthened. Low-population basins (rarely visited = unimportant) get pruned.
+Loosely modelled on memory consolidation during sleep: high-population basins (frequently visited) are strengthened and low-population basins (rarely visited) are pruned. The whole pass is gated: kept entirely or not at all.
+
+Concept algebra and consolidation are Python API methods (see [Python API](#python-api)); the 0.13.0 CLI does not include these commands.
 
 ### Watermark (experimental) <sup>v0.10</sup>
 
@@ -205,13 +214,13 @@ Each mark is an ordinary gated `inject` at a seed derived from the key with SHA-
 
 | Command | What it does |
 |---------|-------------|
-| `guard <type> <value>` | Set guard (max-basins, min-basins, strength-cap, cosine-drift, perplexity-delta) |
+| `guard <type> <value>` | Set guard (max-basins, min-basins, strength-cap) |
 | `guards` | Show active guards |
 | `diff <layer>` | Show W matrix change stats |
 | `benchmark` | Measure perplexity impact of surgery |
 | `history` | Show operation log with OK/BLOCKED status |
 
-Guards are pre-execution checks. If violated, the operation does not start — weights are never touched. Override with `--force --reason "justification"` (logged permanently). `strength-cap` does not apply to `auto`. After a write is computed, the decision gate described above checks it as well.
+Guards are checked before `inject`, `remove`, `inject-concept` and `remove-concept` run: if one is violated, the command does not run and the layer is unchanged. Override with `--force --reason "justification"` (logged permanently). `strength-cap` does not apply to `auto`. After a write is computed, the decision gate described above checks it as well.
 
 ### Verify & Generate
 
@@ -374,7 +383,7 @@ print(f"Removed: {strip['removed']}, Survived: {strip['survived']}, Absent: {str
 
 ## Database Sync — Neural Database Extension
 
-Use HLM as an editable semantic layer on top of your SQL database:
+Mirror rows of a SQL database into an energy landscape as named concept basins:
 
 ```python
 from qriton_hlm.db import HLMSync
@@ -398,7 +407,7 @@ warning.
 pip install qriton-hlm[db]
 ```
 
-SQL stays the source of truth. HLM becomes the editable knowledge layer. See the [Database Sync docs](https://hlm.qriton.com/energy-language/database-sync) for configuration and sync strategies.
+SQL stays the source of truth. See the [Database Sync docs](https://hlm.qriton.com/energy-language/database-sync) for configuration and sync strategies.
 
 ## Compatibility
 
@@ -409,6 +418,10 @@ been measured on synthetic landscapes so far; see "How an edit works" above):
 - HLM-Audio (STT, TTS)
 - Any model using PolyHopfieldLayer
 
+Surveys and edits need only the W matrices. `capture`, `generate` and
+`benchmark` also need a full model checkpoint and its model code (`hlm3_model`
+and `data_utils` importable); that code is not part of this package.
+
 ## Requirements
 
 - Python >= 3.9
@@ -417,7 +430,7 @@ been measured on synthetic landscapes so far; see "How an edit works" above):
 
 ## License
 
-**Business Source License 1.1** — free for research, education, evaluation, and non-commercial use. Commercial use requires a license. Converts to Apache 2.0 on April 1, 2030.
+**Business Source License 1.1** (source-available) — free for research, education, evaluation, and non-commercial use. Commercial use requires a license. Converts to Apache 2.0 on April 1, 2030.
 
 See [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) for details.
 

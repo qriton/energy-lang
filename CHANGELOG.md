@@ -2,6 +2,10 @@
 
 All notable changes to `qriton-hlm` are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+Versions on PyPI: 0.7.2 (2026-03-21, the first public release), 0.9.4, 0.9.5,
+0.10.0, 0.11.2, 0.12.0 and this release. Entries marked "not published"
+describe internal versions that were never released on PyPI.
+
 ## v0.13.0 (2026-10-18)
 
 Edits now write at their target and leave the protected basins' field unchanged,
@@ -138,6 +142,9 @@ than its budget. Results will be published separately.
   new weights are kept. If they would not, the layer is left unchanged and the
   command is refused.
 - CLI refuses the same way unless `--force --reason "..."` is passed.
+  (Corrected in 0.13.0: in 0.12.0 the CLI's `remove-concept`, `strengthen`,
+  `weaken` and `causal intervene` wrote without this check, as did
+  `remove_concept`, `consolidate` and `causal_intervene` in Python.)
 - Low-level `inject_basin` / `remove_basin` are unchanged for callers that
   apply their own checks.
 
@@ -154,13 +161,13 @@ than its budget. Results will be published separately.
 
 - README: documented the no-checkpoint sandbox (`load __random_<dim>`) and the `examples/` walkthroughs.
 
-## v0.11.1 (2026-08-08)
+## v0.11.1 (2026-08-08, not published)
 
 ### Changed
 
 - Docs: README example cleanup. No code changes.
 
-## v0.11.0 (2026-08-08)
+## v0.11.0 (2026-08-08, not published)
 
 ### Added
 
@@ -221,30 +228,30 @@ than its budget. Results will be published separately.
 - **Safety system** — 5 guard types with `--force --reason` override
 - Integration support for DoWhy and CausalNex
 
-## v0.9.3 (March 2026)
+## v0.9.3 (March 2026, not published)
 
 ### Added
 
 - `blend` operation, `export-concept` / `import-concept`, `transplant`
 - Jupyter `%%hlm_landscape` magic
 
-## v0.9.2 (February 2026)
+## v0.9.2 (February 2026, not published)
 
 ### Added
 
 - `guard`, `history`, `diff` operations
 - Gradio web UI
 
-## v0.9.1 (January 2026)
+## v0.9.1 (January 2026, not published)
 
 ### Added
 
 - `probe`, `landscape`, `strengthen`, `weaken` operations
 - HLM Scripts (`.hlm` files)
 
-## v0.9.0 (December 2025)
+## v0.9.0 (December 2025, not published)
 
-### Initial release
+### First internal version
 
 - Core `BasinSurgeon` with 26 operations
 - CLI / REPL, Python API, Jupyter integration

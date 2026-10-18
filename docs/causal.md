@@ -4,9 +4,9 @@ Causal discovery and intervention on polynomial Hopfield networks, using energy 
 
 ## Core Idea
 
-In a transformer, "what causes what" is opaque. Attention weights correlate with output, but correlation is not causation. You cannot remove a single learned behavior and measure what else breaks — the representations are entangled across softmax's single attractor.
+Causal analysis of a network needs units to intervene on. In a polynomial Hopfield layer, the basins a survey finds can serve as those units: each can be removed or changed with an edit, and the effect on the other basins measured.
 
-HLM's polynomial Hopfield layers create **multiple discrete basins** per layer. Each basin is a stable fixed point of the energy landscape — a distinct attractor that captures a specific pattern the model has learned. This discreteness gives us something transformers lack: **individually addressable causal units**.
+Polynomial Hopfield layers can hold **several discrete basins** per layer. Each basin is a stable state of the layer's dynamics, so it can be addressed individually as a **causal unit**.
 
 The causal framework maps directly to Pearl's do-calculus:
 
@@ -269,15 +269,15 @@ generate Tell me about the weather
 restore 5
 ```
 
-## Advantages Over Transformer-Based Causal Analysis
+## What This Approach Offers
 
-**Discrete interventions.** In transformers, ablating a head or neuron is noisy — the representation is distributed, so removing one piece causes unpredictable cascading failures. In HLM, each basin is a discrete attractor, so the readout of a knockout is discrete too: either other basins still converge to the same point, or they don't. That does not make the knockout free of side effects: basins built from the target, basins outside the protected set and attraction regions can change (see Limitations). This has been measured on synthetic landscapes only; validation on trained HLM3 checkpoints is in progress.
+**Discrete interventions.** Each basin is a discrete attractor, so the readout of a knockout is discrete too: either other basins still converge to the same point, or they don't. That does not make the knockout free of side effects: basins built from the target, basins outside the protected set and attraction regions can change (see Limitations). This has been measured on synthetic landscapes only; validation on trained HLM3 checkpoints is in progress.
 
-**Intrinsic causal units.** Transformer causal analysis requires choosing what to treat as a "variable" — individual neurons, attention heads, layers, circuits. The choice is arbitrary and results depend heavily on it. HLM basins are natural causal units: they emerge from the dynamics, not from the researcher's decomposition.
+**Units from the dynamics.** The causal units are the basins the layer's own dynamics produce, rather than a decomposition the researcher chooses.
 
-**Counterfactuals without retraining.** Testing "what if this behavior were different" in a transformer requires activation patching or fine-tuning — both are approximate and expensive. In HLM, `causal_counterfactual` modifies the energy landscape analytically and measures the result. No gradient computation, no training loop.
+**Counterfactuals without retraining.** `causal_counterfactual` modifies the energy landscape analytically and measures the result, with no gradient computation or training loop.
 
-**Directionality from knockout, not correlation.** Transformer probing tells you that two representations are correlated, not which causes which. The knockout scan produces directed edges: "removing B_i changes B_j" is an asymmetric relationship.
+**Directionality from knockout.** The knockout scan produces directed edges: "removing B_i changes B_j" is an asymmetric relationship.
 
 **Composable with surgery.** Once you identify a causal link, you can act on it immediately using the same `BasinSurgeon` API — inject, remove, strengthen, weaken. The causal analysis and the intervention use the same substrate.
 

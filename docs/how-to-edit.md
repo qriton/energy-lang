@@ -1,8 +1,8 @@
 # How to edit
 
-One compact well if it certifies. Everything else explicit.
+Write to the compact matrix only when the write passes the gate.
 
-Compact store first. If the write would disturb what is already stored, it is refused and the memory still lands as an explicit slot. The trunk stays frozen.
+Try the compact matrix first. If the write would disturb what is already stored, it is refused and the matrix is unchanged. The memory can then be kept as an explicit slot outside the matrix; `qriton-hlm` does not provide explicit slots.
 
 ## Compact store
 
@@ -40,7 +40,7 @@ Inject L0 seed=8 α=auto
 A refusal for lost wells reads `REFUSED: protected_basin_lost` and
 `Existing attractors would not survive this update.`
 
-`--force --reason "..."` writes the matrix anyway. That is the damage path, not the product path.
+`--force --reason "..."` writes the matrix anyway. Use it for experiments only: a forced write carries no guarantee.
 
 ## What a kept write does
 
@@ -84,17 +84,15 @@ ones included.
 
 ## Explicit slots
 
-When a compact write is refused, the fact still stores: append a slot. No touch of the matrix.
+When a compact write is refused, the memory can be stored as an explicit slot instead, which leaves the matrix untouched. A slot can be inspected before it is committed, and corrected, forgotten or rolled back later.
 
-Inspect the edit. If it is admitted, commit the slot. Correct, forget, or roll back that slot. The frozen trunk is unchanged.
-
-The `qriton-hlm` CLI stops at the refusal. Product editors then land the same memory on an explicit slot.
+Explicit slots are not part of `qriton-hlm`: the CLI and the Python API stop at the refusal.
 
 ## Same write, two outcomes
 
 | Write the matrix anyway | Refuse, then land explicit |
 | --- | --- |
-| Ungated update on the compact store | Matrix unchanged. Memory still stored. |
-| Existing wells and decisions can change | Trunk stays frozen |
+| Ungated update on the compact store | Matrix unchanged; the memory can be kept as a slot |
+| Existing wells and decisions can change | Existing wells and decisions unchanged |
 
 Do not treat the compact matrix as a general editor. If a write would disturb what is stored, refuse it and store the memory explicitly.

@@ -2,7 +2,6 @@
 Energy Language UI — Interactive basin surgery and visualization.
 
 Inspect, inject, remove, and move basins in trained Hopfield energy landscapes.
-The first tool toward "energy minima as a programming language."
 
 Usage:
     python ui.py
