@@ -805,6 +805,9 @@ class BasinSurgeon:
         return self.params.get('edit_mode', 'projected') == 'projected'
 
     def _protected_basins(self, layer, W, beta):
+        pinned = getattr(self, '_guards', {}).get(layer, {}).get('protected')
+        if pinned is not None:
+            return pinned
         cached = self._basin_cache.get(layer)
         if cached:
             return cached
@@ -1701,13 +1704,20 @@ class BasinSurgeon:
                            max(b['energy'] for b in basin_data)) if basin_data else (0, 0),
         }
 
-    def guard(self, layer, max_remove_pct=10.0, max_changed_pct=None):
+    def guard(self, layer, max_remove_pct=10.0, max_changed_pct=None,
+              protected=None):
         """Set guard constraints for a layer.
 
         max_changed_pct: decision-stability threshold for every edit on this
         layer (default: params['max_changed'] * 100). Enforced by the gate.
+        protected: the basin states edits on this layer must preserve (the
+        write is projected away from them and the gate probes them), e.g.
+        the survey() basins that are real concepts. Default None: every
+        basin find_basins sees, spurious mixtures included, which makes the
+        gate strict. Kept across committed edits; [] protects nothing.
         max_remove_pct: recorded basin-count floor (informational; the
         decision guard is what refuses edits).
+        Each call replaces the layer's previous guard settings.
         Returns current basin count and thresholds.
         """
         W = self.get_W(layer)
@@ -1719,11 +1729,14 @@ class BasinSurgeon:
 
         if not hasattr(self, '_guards'):
             self._guards = {}
+        if protected is not None:
+            protected = [b.to(self.device) for b in protected]
         self._guards[layer] = {
             'baseline_count': len(basins),
             'min_count': threshold,
             'max_remove_pct': max_remove_pct,
             'max_changed_pct': max_changed_pct,
+            'protected': protected,
         }
         self._history.append(('guard', layer, max_remove_pct))
         return {
@@ -1732,6 +1745,7 @@ class BasinSurgeon:
             'min_allowed': threshold,
             'max_remove_pct': max_remove_pct,
             'max_changed_pct': self._max_changed(layer) * 100,
+            'num_protected': None if protected is None else len(protected),
         }
 
     # ── Causal discovery & intervention ─────────────────────────────

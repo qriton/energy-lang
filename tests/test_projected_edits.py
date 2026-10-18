@@ -216,6 +216,27 @@ class TestSurgeonGate:
         assert 'decision' in res['retention']
         assert res['retention']['reason'] != 'protected_basin_lost'
 
+    def test_guard_protected_is_used_and_kept(self, stored):
+        W, xi, protected = stored
+        s = BasinSurgeon.from_W(W)
+        info = s.guard(0, protected=protected)
+        assert info['num_protected'] == len(protected)
+        res = s.inject(0, seed=3)
+        assert res['applied'] is True
+        assert res['retention']['decision']['n_probes'] == 64 * len(protected)
+        # a committed edit resets the find_basins cache, not the guard's set
+        res = s.inject(0, seed=4)
+        assert res['retention']['decision']['n_probes'] == 64 * len(protected)
+        s.guard(0)  # replaces the settings: back to the default protected set
+        assert s._guards[0]['protected'] is None
+
+    def test_guard_protected_empty_protects_nothing(self, stored):
+        W, _, _ = stored
+        s = BasinSurgeon.from_W(W)
+        s.guard(0, protected=[])
+        res = s.inject(0, seed=3)
+        assert res['retention']['decision']['n_probes'] == 0
+
     def test_legacy_mode_keeps_old_gate(self, stored):
         s, xi = self._surgeon(stored)
         s.params['edit_mode'] = 'legacy'
