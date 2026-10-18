@@ -8,7 +8,7 @@ import tempfile
 import pytest
 import torch
 
-from qriton_hlm.core import BasinSurgeon
+from qriton_hlm.core import BasinSurgeon, poly_interaction
 from qriton_hlm.db import (
     HLMSync,
     SyncConfig,
@@ -204,6 +204,19 @@ class TestHLMSync:
         syncer.sync_row("Products", {"id": 1, "name": "Widget v2", "price": 12.99})
         assert syncer.stats["synced"] == 2
         assert syncer.stats["overwrite_warnings"] >= 1
+        syncer.close()
+
+    def test_refused_write_is_counted(self, sync_config):
+        """A write the edit gate refuses is counted, and W stays unchanged."""
+        gen = torch.Generator().manual_seed(0)
+        xi = torch.randint(0, 2, (5, 64), generator=gen).float() * 2 - 1
+        W = (xi.T @ poly_interaction(xi, 3)) / 64
+        surgeon = BasinSurgeon.from_W(W)
+        surgeon.guard(0, max_changed_pct=0.0)
+        syncer = HLMSync(sync_config, surgeon=surgeon)
+        syncer.sync_row("Products", {"id": 1, "name": "W", "price": 1.0}, strength=2.0)
+        assert syncer.stats["refused"] == 1
+        assert torch.equal(surgeon.get_W(0), W)
         syncer.close()
 
     def test_synced_concepts_property(self, sync_config):

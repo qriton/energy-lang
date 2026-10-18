@@ -116,7 +116,7 @@ class HLMSync:
         self._allowed_tables: set[str] = set(config.allowed_tables)
         self._stats = {
             "synced": 0, "deleted": 0, "errors": 0,
-            "retries": 0, "overwrite_warnings": 0,
+            "retries": 0, "overwrite_warnings": 0, "refused": 0,
         }
 
         # Use provided surgeon or create from checkpoint
@@ -160,6 +160,15 @@ class HLMSync:
             return pyodbc.connect(cfg.db_connection_string, autocommit=False)
         raise ValueError(f"Unsupported db_type: {cfg.db_type}")
 
+    def _note_refusal(self, op: str, concept_name: str, result: Any) -> None:
+        """Count and log an edit the gate refused (the landscape is unchanged)."""
+        if isinstance(result, dict) and result.get("applied") is False:
+            self._stats["refused"] += 1
+            logger.warning(
+                "%s for %s refused by the edit gate (%s); landscape unchanged",
+                op, concept_name, result.get("retention", {}).get("reason"),
+            )
+
     def _do_sync(self, table: str, row_id: Any, row_text: str, strength: float) -> None:
         """Core sync operation: capture row text as concept, inject as basin."""
         concept_name = _make_concept_name(table, row_id)
@@ -169,7 +178,8 @@ class HLMSync:
             # Clear existing concept to prevent sample accumulation
             if concept_name in self._synced_concepts:
                 try:
-                    self._surgeon.remove_concept(layer, concept_name, strength)
+                    result = self._surgeon.remove_concept(layer, concept_name, strength)
+                    self._note_refusal("remove_concept", concept_name, result)
                 except (ValueError, KeyError):
                     # Concept not in surgeon's registry — that's OK on first run
                     pass
@@ -179,16 +189,17 @@ class HLMSync:
             if self._has_model:
                 # Full capture: run text through model, get converged Hopfield state
                 self._surgeon.capture(layer, row_text, concept_name=concept_name)
-                self._surgeon.inject_concept(layer, concept_name, strength)
+                result = self._surgeon.inject_concept(layer, concept_name, strength)
             else:
                 # Seed mode: create basin at deterministic position (no text content)
                 # The basin is addressable but doesn't encode the text semantically
                 seed = hash(concept_name) & 0x7FFFFFFF
-                self._surgeon.inject(layer, seed=seed, strength=strength)
+                result = self._surgeon.inject(layer, seed=seed, strength=strength)
                 logger.warning(
                     "No model loaded — %s synced as seed basin only (no text content). "
                     "Load a model for semantic capture.", concept_name
                 )
+            self._note_refusal("inject", concept_name, result)
 
             self._synced_concepts.add(concept_name)
             self._dirty = True
@@ -246,14 +257,15 @@ class HLMSync:
 
         with self._lock:
             try:
-                self._surgeon.remove_concept(layer, concept_name)
+                result = self._surgeon.remove_concept(layer, concept_name)
             except (ValueError, KeyError):
                 # Concept not captured — weaken by seed instead
                 seed = hash(concept_name) & 0x7FFFFFFF
-                self._surgeon.weaken(layer, seed=seed, factor=0.1)
+                result = self._surgeon.weaken(layer, seed=seed, factor=0.1)
                 logger.warning(
                     "Concept %s not in registry. Weakened by seed fallback.", concept_name
                 )
+            self._note_refusal("delete", concept_name, result)
             self._synced_concepts.discard(concept_name)
             self._dirty = True
 
