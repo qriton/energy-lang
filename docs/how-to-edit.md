@@ -62,7 +62,9 @@ on synthetic landscapes with known concepts (20 per row, [RESULTS.md](../RESULTS
 A kept write changed at most 2% of the guard's probes, because the guard
 enforces that limit. Inputs further from a concept move more: in an external
 check with 25% of signs flipped, the two accepted edits changed 2.5% and 7.5%.
-Trained checkpoints have not been measured yet.
+Validation on trained HLM3 checkpoints is in progress; early results show the
+decision guard refusing edits that would change more than its budget. Results
+will be published separately.
 
 ## When the guard refuses too much
 

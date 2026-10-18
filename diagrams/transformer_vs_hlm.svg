@@ -103,7 +103,7 @@
   <text x="606" y="168" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="7" fill="#0077a8" opacity="0.5">editable</text>
 
   <!-- Label -->
-  <text x="600" y="195" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#777" font-style="italic">d = 3 : 200+ basins per layer, each surgically editable</text>
+  <text x="600" y="195" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#777" font-style="italic">d = 3 : 200+ basins per layer, each editable</text>
 
   <!-- Workflow -->
   <rect x="430" y="215" width="340" height="95" rx="6" fill="none" stroke="#ddd" stroke-width="0.5"/>
@@ -130,7 +130,7 @@
   <text x="729" y="268" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="7" fill="#666">basin</text>
 
   <!-- Result -->
-  <text x="600" y="296" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#555">Surgical fix in milliseconds — no retraining</text>
+  <text x="600" y="296" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#555">Gated edit, no retraining (tested on synthetic landscapes)</text>
 
   <!-- Bottom summary -->
   <line x1="30" y1="340" x2="770" y2="340" stroke="#eee" stroke-width="0.5"/>

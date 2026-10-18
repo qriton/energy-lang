@@ -35,9 +35,9 @@ generate In a controlled experiment, the researchers
 # ---------------------------------------------------------------------------
 # 4. Capture a concept from a few short examples at a mid layer
 # ---------------------------------------------------------------------------
-# Mid-stack (L4 in an 8-layer model) is usually the best target: the state
-# is no longer raw token mixing and not yet fully categorical, so injected
-# concepts compose with downstream layers cleanly.
+# Mid-stack (L4 in an 8-layer model) is a reasonable first target: the state
+# is no longer raw token mixing and not yet fully categorical. How an injected
+# concept interacts with downstream layers has not been measured.
 capture 4 formal The committee convened to deliberate the proposal
 capture 4 formal The findings were duly noted and entered into the record
 capture 4 formal Per the established protocol the matter was referred onward

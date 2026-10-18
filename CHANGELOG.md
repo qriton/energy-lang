@@ -12,7 +12,9 @@ changes, hence the 0.x minor bump. Every API change is listed in
 ### Measured
 
 On synthetic landscapes that store known concepts (d=64/K=5 and d=128/K=10;
-20 landscapes per row). No trained HLM checkpoint has been measured yet.
+20 landscapes per row). Validation on trained HLM3 checkpoints is in progress;
+early results show the decision guard refusing edits that would change more
+than its budget. Results will be published separately.
 
 | | 0.12.0 inject (strength 0.5) | 0.13.0 inject (strength auto, ≈0.43) |
 |---|---|---|

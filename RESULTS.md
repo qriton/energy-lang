@@ -120,9 +120,11 @@ mixture 33 times.
 
 ## Caveats
 
-- **The landscapes are synthetic, with random targets.** No real HLM checkpoint
-  was tested, because none is on this Mac. Captured concepts in a trained W may
-  behave differently.
+- **The landscapes are synthetic, with random targets.** No trained HLM
+  checkpoint is in these measurements. Captured concepts in a trained W may
+  behave differently. Validation on trained HLM3 checkpoints is in progress;
+  early results show the decision guard refusing edits that would change more
+  than its budget. Results will be published separately.
 - **The thresholds are mine:** cos 0.95 to count as reached, cos 0.9 to count
   as moved, 15% cue noise, a 2% guard limit and `DEPENDENT_COS` 0.4.
 - **Fixed-mode protection only covers basins `find_basins` can see.** Basins it

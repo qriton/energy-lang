@@ -1,6 +1,6 @@
 # qriton-hlm 0.13.0: edits write at their target, and every write is gated
 
-Energy Language edits now do what they say. An inject used to reinforce
+Energy Language edits now write at their target. An inject used to reinforce
 whatever basin its target happened to fall into, and never created the target.
 It now writes the target itself. The write is projected so that the field at
 the protected basins does not change, and every write path goes through a
@@ -150,10 +150,11 @@ Lower `params['guard_probes']` to trade resolution for speed.
 - In the CLI, pass `auto` (`inject 0 42 auto`). The CLI default strength of
   0.1 rarely creates an attractor.
 
-## Validation on trained HLM weights
+## Trained weights
 
-Pending. A validation run on real HLM checkpoints is in progress, and its
-results will be added here.
+Validation on trained HLM3 checkpoints is in progress; early results show the
+decision guard refusing edits that would change more than its budget. Results
+will be published separately.
 
 ## Install
 

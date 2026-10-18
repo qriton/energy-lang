@@ -18,7 +18,7 @@ The causal framework maps directly to Pearl's do-calculus:
 | Counterfactual X' | Modified basin (inverted, weakened, shifted) |
 | Causal graph | Adjacency from systematic knockout scan |
 
-The key insight: because basins are **stable fixed points**, removing one and measuring drift on the others is a clean intervention, not a noisy ablation. The dynamics either converge to the same attractor (no causal link) or they don't (causal link). There's no gradient to confound — it's topological.
+The key insight: because basins are **stable fixed points**, removing one and measuring drift on the others gives a discrete readout, not a graded ablation. The dynamics either converge to the same attractor (no causal link) or they don't (causal link). There's no gradient to confound. The knockout itself can still move other states (see Limitations), and it has been measured on synthetic landscapes only.
 
 ## Commands
 
@@ -271,7 +271,7 @@ restore 5
 
 ## Advantages Over Transformer-Based Causal Analysis
 
-**Clean interventions.** In transformers, ablating a head or neuron is noisy — the representation is distributed, so removing one piece causes unpredictable cascading failures. In HLM, each basin is a discrete attractor. Removing it is a topologically clean operation: either other basins still converge to the same point, or they don't. There's no "partial activation" to confuse the picture.
+**Discrete interventions.** In transformers, ablating a head or neuron is noisy — the representation is distributed, so removing one piece causes unpredictable cascading failures. In HLM, each basin is a discrete attractor, so the readout of a knockout is discrete too: either other basins still converge to the same point, or they don't. That does not make the knockout free of side effects: basins built from the target, basins outside the protected set and attraction regions can change (see Limitations). This has been measured on synthetic landscapes only; validation on trained HLM3 checkpoints is in progress.
 
 **Intrinsic causal units.** Transformer causal analysis requires choosing what to treat as a "variable" — individual neurons, attention heads, layers, circuits. The choice is arbitrary and results depend heavily on it. HLM basins are natural causal units: they emerge from the dynamics, not from the researcher's decomposition.
 
@@ -359,4 +359,4 @@ print(f"Knockout-only: {len(knockout_edges - learned_edges)}")
 print(f"Data-driven-only: {len(learned_edges - knockout_edges)}")
 ```
 
-The knockout scan (interventional) and data-driven learning (observational) are complementary. The knockout scan gives you ground-truth directed edges for the basins it can find. Data-driven methods can reveal softer statistical dependencies and cross-layer patterns that knockout misses. Use both when precision matters.
+The knockout scan (interventional) and data-driven learning (observational) are complementary. The knockout scan gives you directed edges from interventions, for the basins it can find. Data-driven methods can reveal softer statistical dependencies and cross-layer patterns that knockout misses. Use both when precision matters.

@@ -30,8 +30,11 @@ hlm:model> generate Tell me about the weather
   I'd be happy to share! The weather today is...
 ```
 
-(Illustrative session.) If a write would disturb the basins already there, the
-command prints `REFUSED` and leaves the layer unchanged.
+(Illustrative session, not recorded output.) If a write would disturb the basins
+already there, the command prints `REFUSED` and leaves the layer unchanged.
+Validation so far is on synthetic landscapes. Validation on trained HLM3
+checkpoints is in progress; early results show the decision guard refusing
+edits that would change more than its budget. Details will follow.
 
 ## Install
 
@@ -84,7 +87,9 @@ Measured on synthetic landscapes with known concepts (20 per row, see
 | other concepts' cues changed by an inject | 37–39% (strength 0.5) | 0% (auto), 1% (0.5) |
 | remove reaches its target / other cues changed | 100% / 2% at 0.5, but `BasinSurgeon.remove` was always refused | 100% / 1% (auto) |
 
-These are synthetic results; trained checkpoints are being measured. By
+These are synthetic results. Validation on trained HLM3 checkpoints is in
+progress; early results show the decision guard refusing edits that would change
+more than its budget. Results will be published separately. By
 default the protected basins are everything a random-start survey finds,
 spurious mixtures included, and that makes the gate strict: at auto strength it
 accepted 15–50% of edits, against 90–100% when only the real concepts were
@@ -397,7 +402,8 @@ SQL stays the source of truth. HLM becomes the editable knowledge layer. See the
 
 ## Compatibility
 
-Works with any PyTorch checkpoint that contains `hopfield.W` parameters:
+Loads any PyTorch checkpoint that contains `hopfield.W` parameters (edits have
+been measured on synthetic landscapes so far; see "How an edit works" above):
 - HLM2/HLM3 language models
 - HLM-Spatial (LIDAR, Medical3D, Industrial3D)
 - HLM-Audio (STT, TTS)

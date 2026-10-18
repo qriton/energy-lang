@@ -448,8 +448,9 @@ The release notes compare test-suite times.
 ## 11. Known limits
 
 - Every number here comes from synthetic landscapes with random targets.
-  Validation on trained HLM weights is in progress and will be appended to the
-  release notes.
+  Validation on trained HLM3 checkpoints is in progress; early results show the
+  decision guard refusing edits that would change more than its budget.
+  Results will be published separately.
 - Protection covers only basins in the protected set. Basins that
   `find_basins` misses get no guarantee.
 - The 2% budget is measured on the guard's own probes (15% of signs flipped).
