@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qriton-hlm"
-version = "0.13.0"
+version = "0.13.0.post1"
 description = "Energy Language: inspect and edit the energy landscapes of polynomial Hopfield networks"
 readme = "README.md"
 license = {text = "BSL-1.1"}

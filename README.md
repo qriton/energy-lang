@@ -38,7 +38,7 @@ inject was kept. The second would have changed 3.0% of the existing basins'
 decisions, more than the 2% budget, so the command printed `REFUSED` and left
 the layer unchanged. Basin counts come from random starts, so they vary between
 runs. The editing results are from synthetic landscapes. On trained HLM3 checkpoints no tested edit was local enough to keep; see
-[Trained weights](RELEASE_NOTES.md#trained-weights) in the release notes.
+[Trained weights](https://github.com/qriton/energy-lang/blob/master/RELEASE_NOTES.md#trained-weights) in the release notes.
 
 ## Install
 
@@ -58,7 +58,7 @@ hlm> survey 0               # map its basins
 hlm> energy 0 3             # inspect a point
 ```
 
-Runnable walkthroughs live in [`examples/`](examples/), including the HLM3-Mix 35M K=16 preview.
+Runnable walkthroughs live in [`examples/`](https://github.com/qriton/energy-lang/tree/master/examples/), including the HLM3-Mix 35M K=16 preview.
 
 ## What is this?
 
@@ -86,7 +86,7 @@ basins** per layer.
   `force=True` keeps a refused write.
 
 Measured on synthetic landscapes with known concepts (20 per row, see
-[RESULTS.md](RESULTS.md)):
+[RESULTS.md](https://github.com/qriton/energy-lang/blob/master/RESULTS.md)):
 
 | | 0.12 | 0.13 |
 |---|---|---|
@@ -95,14 +95,14 @@ Measured on synthetic landscapes with known concepts (20 per row, see
 | remove reaches its target / other cues changed | 100% / 2% at 0.5, but `BasinSurgeon.remove` was always refused | 100% / 1% (auto) |
 
 These are synthetic results. On trained HLM3 checkpoints no tested edit was local enough to keep; see
-[Trained weights](RELEASE_NOTES.md#trained-weights) in the release notes. By
+[Trained weights](https://github.com/qriton/energy-lang/blob/master/RELEASE_NOTES.md#trained-weights) in the release notes. By
 default the protected basins are everything a random-start survey finds,
 spurious mixtures included, and that makes the gate strict: at auto strength it
 accepted 15–50% of edits, against 90–100% when only the real concepts were
 protected. Use `guard(layer, protected=...)` to protect what matters. Edits also
 cost more than in 0.12 because the gate re-settles its probes.
 
-Upgrading from 0.12: see [MIGRATION.md](MIGRATION.md). `mode="legacy"` keeps
+Upgrading from 0.12: see [MIGRATION.md](https://github.com/qriton/energy-lang/blob/master/MIGRATION.md). `mode="legacy"` keeps
 the 0.12 behaviour.
 
 ## Operations — Energy Language
@@ -125,7 +125,7 @@ command is refused and the layer is left unchanged. `--force --reason`
 overrides this for experiments on `inject`, `remove`, `inject-concept` and
 `remove-concept`.
 
-See [How to edit](docs/how-to-edit.md) for what the gate checks and what to do
+See [How to edit](https://github.com/qriton/energy-lang/blob/master/docs/how-to-edit.md) for what the gate checks and what to do
 when it refuses an edit.
 
 ### Modify (change the landscape)
@@ -431,7 +431,7 @@ and `data_utils` importable); that code is not part of this package.
 
 **Business Source License 1.1** (source-available) — free for research, education, evaluation, and non-commercial use. Commercial use requires a license. Converts to Apache 2.0 on April 1, 2030.
 
-See [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) for details.
+See [LICENSE](https://github.com/qriton/energy-lang/blob/master/LICENSE) and [LICENSING.md](https://github.com/qriton/energy-lang/blob/master/LICENSING.md) for details.
 
 Commercial licensing: license@qriton.com
 

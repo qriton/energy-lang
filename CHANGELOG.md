@@ -6,6 +6,10 @@ Versions on PyPI: 0.7.2 (2026-03-21, the first public release), 0.9.4, 0.9.5,
 0.10.0, 0.11.2, 0.12.0 and this release. Entries marked "not published"
 describe internal versions that were never released on PyPI.
 
+## v0.13.0.post1 (2026-10-19)
+
+README only: links now point to GitHub, so they resolve on PyPI. The code is identical to 0.13.0.
+
 ## v0.13.0 (2026-10-18)
 
 Edits now write at their target and leave the protected basins' field unchanged,
