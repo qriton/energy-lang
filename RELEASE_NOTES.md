@@ -134,7 +134,8 @@ The guard settles its probe set twice per edit.
   probes, 1.0 s at 2,048, 0.7 s at 1,024.
 - Test-suite CPU time on the release machine, one run each under heavy load
   (repeat runs varied by tens of percent): 16 s for 0.12.0 (69 tests), 38 s
-  for the fix commit (83 tests), 35 s for 0.13.0 (96 tests).
+  for the fix commit (83 tests), 35 s for 0.13.0 before its last two fixes
+  (96 tests; the release has 102).
 
 Lower `params['guard_probes']` to trade resolution for speed.
 

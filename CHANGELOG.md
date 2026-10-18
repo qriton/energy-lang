@@ -32,7 +32,8 @@ than its budget. Results will be published separately.
 - Edits cost more: the guard converges the probe set twice. The test suite went
   from about 7 s to about 1 min on the machine where the fix was measured. On
   the release machine, under heavy load, its CPU time went from 16 s (0.12.0, 69
-  tests) to 35 s (0.13.0, 96 tests).
+  tests) to 35 s (0.13.0 before its last two fixes, 96 tests; the release has
+  102).
 
 ### Changed (default behaviour)
 
