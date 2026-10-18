@@ -16,11 +16,12 @@ survey 0
 set tokens 30
 generate The meaning of life is
 
-# Inject a new basin at layer 0
-set strength 0.1
-inject 0 42
+# Inject a new basin at layer 0. `auto` picks the smallest strength that
+# creates it; the write is kept only if it passes the gate (protected basins
+# survive, at most 2% of their decisions change), else REFUSED and unchanged.
+inject 0 42 auto
 
-# Verify it took
+# Verify it took (checks the seed's sign pattern, the state inject writes)
 verify 0 42
 
 # Apply to the live model

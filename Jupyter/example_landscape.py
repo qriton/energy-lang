@@ -30,14 +30,15 @@ def main():
         print(f"  {layer:3d} | {n:5d}  | {e_min:+9.4f} | {e_max:+9.4f} | {top_pop}")
 
     # --- Surgery tolerance test ---
-    print("\nSurgery tolerance (inject strength=0.1, measure basin count delta):")
+    print("\nSurgery tolerance (gated inject, strength auto; basin count delta):")
     for layer in range(n_layers):
         before = surgeon.survey(layer)
-        surgeon.inject(layer=layer, seed=42, strength=0.1)
+        result = surgeon.inject(layer=layer, seed=42)
         after = surgeon.survey(layer)
         delta = after['num_basins'] - before['num_basins']
         surgeon.restore(layer)
-        print(f"  L{layer}: {before['num_basins']} -> {after['num_basins']} ({delta:+d})")
+        kept = 'kept' if result['applied'] else f"refused ({result['retention']['reason']})"
+        print(f"  L{layer}: {before['num_basins']} -> {after['num_basins']} ({delta:+d}), {kept}")
 
 if __name__ == '__main__':
     main()

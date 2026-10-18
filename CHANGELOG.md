@@ -2,6 +2,136 @@
 
 All notable changes to `qriton-hlm` are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+Versions on PyPI: 0.7.2 (2026-03-21, the first public release), 0.9.4, 0.9.5,
+0.10.0, 0.11.2, 0.12.0 and this release. Entries marked "not published"
+describe internal versions that were never released on PyPI.
+
+## v0.13.0 (2026-10-18)
+
+Edits now write at their target and leave the protected basins' field unchanged,
+and every write path goes through a decision-stability guard. Default behaviour
+changes, hence the 0.x minor bump. Every API change is listed in
+[MIGRATION.md](MIGRATION.md); measurements are in [RESULTS.md](RESULTS.md).
+
+### Measured
+
+On synthetic landscapes that store known concepts (d=64/K=5 and d=128/K=10;
+20 landscapes per row). On trained HLM3 checkpoints no tested edit was local enough to keep; see Trained weights in
+RELEASE_NOTES.md.
+
+| | 0.12.0 inject (strength 0.5) | 0.13.0 inject (strength auto, ≈0.43) |
+|---|---|---|
+| target became an attractor | 0% (0/120 at any strength tried) | 100% |
+| other concepts' cues changed | 37–39% | 0% |
+| other concepts still recalled | 62–66% | 98–99% |
+| protected basins' field `W f(b)` | changed | unchanged (exact, tested) |
+
+- remove (auto, ≈0.29): target removed 100%, other concepts' cues changed 1%.
+  `BasinSurgeon.remove` was refused 60/60 in 0.12.0.
+- move (auto, ≈0.48): target reached 95%, other concepts' cues changed 1%.
+- At auto strength the guard accepts 15–50% of edits when it protects every
+  visible basin (spurious mixtures included) and 90–100% when it protects only
+  the stored concepts.
+- Edits cost more: the guard converges the probe set twice. The test suite went
+  from about 7 s to about 1 min on the machine where the fix was measured. On
+  the release machine, under heavy load, its CPU time went from 16 s (0.12.0, 69
+  tests) to 35 s (0.13.0 before its last two fixes, 96 tests; the release has
+  102).
+
+### Changed (default behaviour)
+
+- `inject_basin` / `remove_basin` / `move_basin` default to `mode="projected"`.
+  Inject writes the target's sign pattern (×0.9) instead of reinforcing the basin
+  the target falls into, and every write is projected away from the protected
+  basins (by default every basin `find_basins` sees from 64 random starts), so
+  their field `W f(b)` is unchanged. `mode="legacy"` reproduces 0.12.0's writes.
+- `BasinSurgeon.inject`, `remove`, `move`, `inject_concept` and `remove_concept`
+  use `strength="auto"` when no strength is given (projected mode).
+- Every `BasinSurgeon` write goes through the gate: the retention certificate
+  plus `certify_decisions` (at most 2% of the protected basins' cue decisions may
+  change). Newly gated: `remove_concept`, `causal_intervene`, `consolidate`
+  (and so `dream`). A refused edit leaves W unchanged and returns
+  `applied: False`.
+- CLI: `remove-concept`, `strengthen`, `weaken` and `causal intervene` are now
+  gated; every write is projected and uses the layer's beta.
+
+### Fixed
+
+- `inject_basin` wrote on whatever basin the target converged to (an existing
+  concept, its mirror or a spurious mixture), never at the target.
+- `remove_basin` / `move_basin` now protect the other basins the same way; basins
+  built from a removed target (`dependent_basins`) are not protected.
+- `BasinSurgeon.remove` was refused every time (the target was in its own
+  protected set). `remove_concept`, `consolidate`, `causal_intervene` and the
+  CLI `remove-concept`, `strengthen`, `weaken` and `causal intervene` wrote
+  without any check.
+- CLI inject/remove/move ignored the layer's beta.
+- `BasinSurgeon.guard()` settings were stored but never read; `max_changed_pct`
+  is now enforced.
+- Projected writes no longer write rounding noise when the protected states span
+  every direction (at least as many protected states as dimensions). They
+  return W unchanged instead.
+- CLI `--version`, the banner and exported concept files reported 0.9.4.
+- CLI "target is basin" and `verify` checked the unit-norm target, which settles
+  to zero, and printed False after a successful inject. They now check the
+  target's sign pattern, the state the write creates.
+- `HLMSync` seed mode (no model loaded) derived a row's seed from Python's
+  `hash()` of its concept name, which is salted per process, so `delete_row` in
+  a later process weakened a different position than `sync_row` had written.
+  The seed is now SHA-256 of the concept name, the same in every process.
+- `watermark_verify` found marks for any key. It ran `verify()` per mark, which
+  tests the basin the seed direction settles into, and in a layer with basins
+  one exists for every key. Each mark is now tested at the state its inject
+  writes, the sign pattern of the key's seed direction × 0.9: it is present
+  when at least one of 5 seeded noisy starts there settles back onto it. On a
+  synthetic landscape (d=64, 5 stored concepts, the guard protecting those
+  concepts) the signing key finds its 3 marks, and a wrong key and an unmarked
+  model find none; the old check found 3 of 3 for both. `watermark_inject`'s
+  per-mark `exists_after` reported marks the gate refused as present; it now
+  uses the same test, as does `watermark_strip_attempt`.
+
+### Added
+
+- `certify_decisions(W, W_new, ...)`: decision-stability guard. It measures the
+  fraction of probe decisions (noisy cues of protected basins) whose settling
+  point moves and returns the changed probes. Results carry it under
+  `retention["decision"]`.
+- `strength="auto"`: the smallest strength on `AUTO_STRENGTHS` that does the edit.
+- `mode="legacy"` (functions) and `params['edit_mode'] = 'legacy'` (`BasinSurgeon`).
+- `BasinSurgeon.guard(layer, protected=[...])` pins the protected set for a layer,
+  e.g. to protect only real concepts.
+- Guard sample size: `certify_decisions(..., n_cue=64, max_probes=4096)`,
+  `default_probes(..., max_probes=None)` and `BasinSurgeon.params['guard_probes']`.
+  The default cap never binds for the default protected set (at most 64 basins).
+- `HLMSync.stats["refused"]` counts sync/delete writes the gate refused, with a
+  warning in the log.
+- `watermark_inject` reports each mark's `applied`. `watermark_strip_attempt`
+  reports `absent` (marks not present, which it leaves alone).
+- `measure_edits.py` and `RESULTS.md`: before/after measurements.
+
+### Upgrading
+
+- Read [MIGRATION.md](MIGRATION.md). Check `result["applied"]` after every
+  `BasinSurgeon` edit. A refusal is normal and leaves W unchanged;
+  `result["retention"]["decision"]["changed"]` lists the probes that would move.
+- To reproduce 0.12.0, pass `mode="legacy"` to the functions or set
+  `surgeon.params['edit_mode'] = 'legacy'`. In legacy mode `remove_concept`,
+  `causal_intervene` and `consolidate` are still gated by the 0.12.0 certificate;
+  add `force=True` to write unconditionally as 0.12.0 did.
+- If edits are refused because spurious basins are protected, protect only the
+  real concepts: `surgeon.guard(layer, protected=concept_states)`, or
+  `protected=` on the functions.
+- `strengthen`, `weaken`, `consolidate` and the `causal_*` methods do not use
+  `auto`. They derive strength from `params['strength']` (1.0 by default), which
+  the guard usually refuses. Lower it (measured auto strengths were 0.3–0.5).
+- CLI: pass `auto` as the strength (`inject 0 42 auto`). The CLI default is
+  `set strength` (0.1), usually too weak to create an attractor.
+- Watermarks: models signed with 0.12.0 or earlier, or in legacy mode,
+  generally do not verify any more. Their marks reinforced whichever basin each
+  seed direction reached, not a state that depends on the key. Sign them again
+  with `watermark_inject(key, strength="auto")` and check each mark's `applied`
+  and `exists_after`.
+
 ## v0.12.0 (2026-09-02)
 
 ### Changed
@@ -11,6 +141,9 @@ All notable changes to `qriton-hlm` are documented here. Follows [Semantic Versi
   new weights are kept. If they would not, the layer is left unchanged and the
   command is refused.
 - CLI refuses the same way unless `--force --reason "..."` is passed.
+  (Corrected in 0.13.0: in 0.12.0 the CLI's `remove-concept`, `strengthen`,
+  `weaken` and `causal intervene` wrote without this check, as did
+  `remove_concept`, `consolidate` and `causal_intervene` in Python.)
 - Low-level `inject_basin` / `remove_basin` are unchanged for callers that
   apply their own checks.
 
@@ -27,13 +160,13 @@ All notable changes to `qriton-hlm` are documented here. Follows [Semantic Versi
 
 - README: documented the no-checkpoint sandbox (`load __random_<dim>`) and the `examples/` walkthroughs.
 
-## v0.11.1 (2026-08-08)
+## v0.11.1 (2026-08-08, not published)
 
 ### Changed
 
 - Docs: README example cleanup. No code changes.
 
-## v0.11.0 (2026-08-08)
+## v0.11.0 (2026-08-08, not published)
 
 ### Added
 
@@ -94,30 +227,30 @@ All notable changes to `qriton-hlm` are documented here. Follows [Semantic Versi
 - **Safety system** — 5 guard types with `--force --reason` override
 - Integration support for DoWhy and CausalNex
 
-## v0.9.3 (March 2026)
+## v0.9.3 (March 2026, not published)
 
 ### Added
 
 - `blend` operation, `export-concept` / `import-concept`, `transplant`
 - Jupyter `%%hlm_landscape` magic
 
-## v0.9.2 (February 2026)
+## v0.9.2 (February 2026, not published)
 
 ### Added
 
 - `guard`, `history`, `diff` operations
 - Gradio web UI
 
-## v0.9.1 (January 2026)
+## v0.9.1 (January 2026, not published)
 
 ### Added
 
 - `probe`, `landscape`, `strengthen`, `weaken` operations
 - HLM Scripts (`.hlm` files)
 
-## v0.9.0 (December 2025)
+## v0.9.0 (December 2025, not published)
 
-### Initial release
+### First internal version
 
 - Core `BasinSurgeon` with 26 operations
 - CLI / REPL, Python API, Jupyter integration

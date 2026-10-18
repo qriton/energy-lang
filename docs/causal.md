@@ -4,9 +4,9 @@ Causal discovery and intervention on polynomial Hopfield networks, using energy 
 
 ## Core Idea
 
-In a transformer, "what causes what" is opaque. Attention weights correlate with output, but correlation is not causation. You cannot remove a single learned behavior and measure what else breaks — the representations are entangled across softmax's single attractor.
+Causal analysis of a network needs units to intervene on. In a polynomial Hopfield layer, the basins a survey finds can serve as those units: each can be removed or changed with an edit, and the effect on the other basins measured.
 
-HLM's polynomial Hopfield layers create **multiple discrete basins** per layer. Each basin is a stable fixed point of the energy landscape — a distinct attractor that captures a specific pattern the model has learned. This discreteness gives us something transformers lack: **individually addressable causal units**.
+Polynomial Hopfield layers can hold **several discrete basins** per layer. Each basin is a stable state of the layer's dynamics, so it can be addressed individually as a **causal unit**.
 
 The causal framework maps directly to Pearl's do-calculus:
 
@@ -18,7 +18,7 @@ The causal framework maps directly to Pearl's do-calculus:
 | Counterfactual X' | Modified basin (inverted, weakened, shifted) |
 | Causal graph | Adjacency from systematic knockout scan |
 
-The key insight: because basins are **stable fixed points**, removing one and measuring drift on the others is a clean intervention, not a noisy ablation. The dynamics either converge to the same attractor (no causal link) or they don't (causal link). There's no gradient to confound — it's topological.
+The key insight: because basins are **stable fixed points**, removing one and measuring drift on the others gives a discrete readout, not a graded ablation. The dynamics either converge to the same attractor (no causal link) or they don't (causal link). There's no gradient to confound. The knockout itself can still move other states (see Limitations), and it has been measured on synthetic landscapes only.
 
 ## Commands
 
@@ -33,6 +33,15 @@ Systematically knocks out each basin and measures which other basins shift or di
 4. Measure cosine drift: `drift = 1 - cos(B_j_original, B_j_after_knockout)`
 5. If drift > threshold, record edge B_i -> B_j
 6. Restore original W before next knockout
+
+Since 0.13 the knockout uses the edit mode. In the default projected mode, the
+removal of B_i is projected so that the field at the other protected basins is
+unchanged. In the CLI those are the scan's own basins; in Python, the layer's
+protected set. Drift then comes mainly from basins built from B_i (mixtures
+with |cos| ≥ 0.4) and from basins outside the protected set. Graphs therefore
+differ from 0.12: on three synthetic landscapes, 32/43/95 edges against
+36/50/118. Set `surgeon.params['edit_mode'] = 'legacy'` to reproduce 0.12's
+unprojected knockouts in Python.
 
 ```
 hlm:model> causal scan 5
@@ -59,7 +68,7 @@ The optional second argument sets the drift threshold (default: 0.15). Higher = 
 
 ### `causal intervene` — Apply do(X)
 
-Performs Pearl's do-operator: intervene on a specific basin and measure the full downstream effect. Unlike `causal scan`, this **persists** the change.
+Performs Pearl's do-operator: intervene on a specific basin and measure the full downstream effect. Unlike `causal scan`, this **persists** the change, but only if it passes the same gate as every edit (0.13). The protected basins must survive and at most 2% of their decisions may change. Otherwise the command prints `REFUSED` and the layer is left unchanged. The CLI has no override for `causal intervene`; the Python API takes `force=True`.
 
 **Operations:**
 - `remove` (default) — delete the basin entirely
@@ -164,7 +173,9 @@ for a in result['affected']:
           f"survived={a['survived']}  "
           f"energy: {a['energy_before']:.4f} -> {a['energy_after']:.4f}")
 
-# The change is persisted in the surgeon's W cache.
+# The change is kept in the surgeon's W cache only if it passed the gate.
+# `affected` / `basins_after` describe the proposed W either way.
+print(f"Kept: {result['applied']} ({result['retention']['reason']})")
 # To undo:
 surgeon.restore(layer=5)
 ```
@@ -173,10 +184,11 @@ surgeon.restore(layer=5)
 - `layer` (int) — layer index
 - `basin_idx` (int) — which basin to intervene on
 - `operation` (str) — `'remove'`, `'weaken'`, or `'strengthen'`
-- `strength` (float, optional) — surgery strength
+- `strength` (float, optional) — surgery strength (default: `surgeon.params['strength']`, 1.0, which the gate often refuses; `auto` is not supported here)
 - `num_inits` (int) — random initializations for basin discovery (default: 50)
+- `force` (bool) — keep the intervention even if the gate refuses it (default: False; new in 0.13)
 
-**Returns:** dict with keys `layer`, `basin_idx`, `operation`, `basins_before`, `basins_after`, `target_energy_before`, `affected`, `num_affected`
+**Returns:** dict with keys `layer`, `basin_idx`, `operation`, `basins_before`, `basins_after`, `target_energy_before`, `affected`, `num_affected`, `applied`, `retention` (the last two are new in 0.13)
 
 ### `BasinSurgeon.causal_counterfactual()`
 
@@ -227,10 +239,12 @@ for hub in hub_basins:
     cf = surgeon.causal_counterfactual(layer=5, basin_idx=hub, modification='invert')
     print(f"  B{hub}: inverting would affect {cf['num_affected']} basins")
 
-# 3. INTERVENTION — apply the change
+# 3. INTERVENTION — apply the change (kept only if it passes the gate)
 target_basin = hub_basins[0]  # pick the most influential
-result = surgeon.causal_intervene(layer=5, basin_idx=target_basin, operation='remove')
-print(f"Removed B{target_basin}: {result['basins_before']} -> {result['basins_after']} basins")
+result = surgeon.causal_intervene(layer=5, basin_idx=target_basin, operation='remove',
+                                  strength=0.3)
+print(f"Removed B{target_basin}: {result['basins_before']} -> {result['basins_after']} basins, "
+      f"kept: {result['applied']}")
 
 # 4. VERIFICATION — confirm the effect
 surgeon.apply(layer=5)
@@ -255,15 +269,15 @@ generate Tell me about the weather
 restore 5
 ```
 
-## Advantages Over Transformer-Based Causal Analysis
+## What This Approach Offers
 
-**Clean interventions.** In transformers, ablating a head or neuron is noisy — the representation is distributed, so removing one piece causes unpredictable cascading failures. In HLM, each basin is a discrete attractor. Removing it is a topologically clean operation: either other basins still converge to the same point, or they don't. There's no "partial activation" to confuse the picture.
+**Discrete interventions.** Each basin is a discrete attractor, so the readout of a knockout is discrete too: either other basins still converge to the same point, or they don't. That does not make the knockout free of side effects: basins built from the target, basins outside the protected set and attraction regions can change (see Limitations). This has been measured on synthetic landscapes only. On trained HLM3 checkpoints no tested edit was local enough to keep; see [Trained weights](../RELEASE_NOTES.md#trained-weights) in the release notes.
 
-**Intrinsic causal units.** Transformer causal analysis requires choosing what to treat as a "variable" — individual neurons, attention heads, layers, circuits. The choice is arbitrary and results depend heavily on it. HLM basins are natural causal units: they emerge from the dynamics, not from the researcher's decomposition.
+**Units from the dynamics.** The causal units are the basins the layer's own dynamics produce, rather than a decomposition the researcher chooses.
 
-**Counterfactuals without retraining.** Testing "what if this behavior were different" in a transformer requires activation patching or fine-tuning — both are approximate and expensive. In HLM, `causal_counterfactual` modifies the energy landscape analytically and measures the result. No gradient computation, no training loop.
+**Counterfactuals without retraining.** `causal_counterfactual` modifies the energy landscape analytically and measures the result, with no gradient computation or training loop.
 
-**Directionality from knockout, not correlation.** Transformer probing tells you that two representations are correlated, not which causes which. The knockout scan produces directed edges: "removing B_i changes B_j" is an asymmetric relationship.
+**Directionality from knockout.** The knockout scan produces directed edges: "removing B_i changes B_j" is an asymmetric relationship.
 
 **Composable with surgery.** Once you identify a causal link, you can act on it immediately using the same `BasinSurgeon` API — inject, remove, strengthen, weaken. The causal analysis and the intervention use the same substrate.
 
@@ -277,7 +291,7 @@ restore 5
 
 **Threshold sensitivity.** The drift threshold (default 0.15) determines what counts as a causal link. Too low and you get noise edges from numerical jitter. Too high and you miss real but weak links. There's no principled way to set it — you have to calibrate per model.
 
-**Knockout strength matters.** The `strength` parameter controls how aggressively a basin is removed. If strength is too low, the basin partially survives and downstream effects are muted. If too high, the W matrix perturbation is large enough to create spurious effects beyond the target basin.
+**Knockout strength matters.** The `strength` parameter controls how aggressively a basin is removed. If strength is too low, the basin partially survives and downstream effects are muted. If too high, the W matrix perturbation is large enough to create spurious effects beyond the target basin. In projected mode (0.13 default) the protected basins stay fixed points whatever the strength. Drift then comes from three sources: basins built from the target, basins outside the protected set, or attraction regions that shrank.
 
 **Quadratic cost.** `causal_scan` is O(n^2) in the number of basins: for each of n basins, it checks drift on all n-1 others. At 20+ basins per layer, this becomes slow. On CPU, expect seconds per layer for small models; on GPU, it's faster but still scales quadratically.
 
@@ -345,4 +359,4 @@ print(f"Knockout-only: {len(knockout_edges - learned_edges)}")
 print(f"Data-driven-only: {len(learned_edges - knockout_edges)}")
 ```
 
-The knockout scan (interventional) and data-driven learning (observational) are complementary. The knockout scan gives you ground-truth directed edges for the basins it can find. Data-driven methods can reveal softer statistical dependencies and cross-layer patterns that knockout misses. Use both when precision matters.
+The knockout scan (interventional) and data-driven learning (observational) are complementary. The knockout scan gives you directed edges from interventions, for the basins it can find. Data-driven methods can reveal softer statistical dependencies and cross-layer patterns that knockout misses. Use both when precision matters.

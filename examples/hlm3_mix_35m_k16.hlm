@@ -35,9 +35,9 @@ generate In a controlled experiment, the researchers
 # ---------------------------------------------------------------------------
 # 4. Capture a concept from a few short examples at a mid layer
 # ---------------------------------------------------------------------------
-# Mid-stack (L4 in an 8-layer model) is usually the best target: the state
-# is no longer raw token mixing and not yet fully categorical, so injected
-# concepts compose with downstream layers cleanly.
+# Mid-stack (L4 in an 8-layer model) is a reasonable first target: the state
+# is no longer raw token mixing and not yet fully categorical. How an injected
+# concept interacts with downstream layers has not been measured.
 capture 4 formal The committee convened to deliberate the proposal
 capture 4 formal The findings were duly noted and entered into the record
 capture 4 formal Per the established protocol the matter was referred onward
@@ -45,11 +45,11 @@ capture 4 formal Per the established protocol the matter was referred onward
 # ---------------------------------------------------------------------------
 # 5. Inject the captured concept as a new attractor
 # ---------------------------------------------------------------------------
-# A small strength (0.05 - 0.10) is enough on a 35M model. Larger values
-# can collapse neighbouring basins, which the `guard` step below will catch.
-set strength 0.08
-guard 4 10
-inject-concept 4 formal
+# `auto` picks the smallest strength that makes the concept an attractor.
+# Since 0.13 the write is kept only if the layer's existing basins survive and
+# at most 2% of their decisions change; otherwise it prints REFUSED and L4
+# stays unchanged (the rest of the script still runs).
+inject-concept 4 formal auto
 
 # ---------------------------------------------------------------------------
 # 6. Apply the modified W to the live model and inspect the delta

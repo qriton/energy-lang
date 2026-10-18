@@ -6,11 +6,11 @@ Usage:
 
     surgeon = %hlm_load model.pt
     %hlm survey 0
-    %hlm inject 0 42 0.1
+    %hlm inject 0 42 auto
     %%hlm
     capture 5 polite Thank you so much
     capture 5 polite I really appreciate it
-    inject-concept 5 polite 0.1
+    inject-concept 5 polite auto
     apply 5
 """
 
@@ -321,7 +321,7 @@ class HLMMagics(Magics):
         Line magic:  %hlm survey 0
         Cell magic:  %%hlm
                      survey 0
-                     inject 0 42 0.1
+                     inject 0 42 auto
         """
         if cell is not None:
             commands = cell.strip().split('\n')

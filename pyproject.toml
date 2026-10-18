@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qriton-hlm"
-version = "0.12.0"
-description = "Energy Language — program neural networks by shaping energy landscapes"
+version = "0.13.0"
+description = "Energy Language: inspect and edit the energy landscapes of polynomial Hopfield networks"
 readme = "README.md"
 license = {text = "BSL-1.1"}
 requires-python = ">=3.9"

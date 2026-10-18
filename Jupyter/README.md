@@ -1,5 +1,9 @@
 # Qriton HLM — Examples
 
+Since 0.13 every write is gated: it is kept only if the existing basins survive and at most
+2% of their decisions change, otherwise it is refused and W is unchanged (`applied: False`).
+The examples use `strength="auto"` (Python default; `auto` in the CLI).
+
 ## Jupyter Notebooks
 
 | Notebook | What it covers |
