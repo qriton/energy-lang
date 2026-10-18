@@ -110,6 +110,9 @@ move more, and denser landscapes (8 concepts in 64 dimensions) leave less room.
 - The CLI reported version 0.9.4.
 - CLI "target is basin" and `verify` tested a state that always collapses to
   zero, so they printed False even after a successful inject.
+- `HLMSync` seed mode placed rows with Python's `hash()`, which is salted per
+  process, so `delete_row` in a later process missed the row. Seeds are now
+  SHA-256 of the concept name.
 
 ## Cost
 

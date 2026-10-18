@@ -322,6 +322,11 @@ Signatures and return values are unchanged. Behaviour follows `BasinSurgeon`:
   still counts in `synced` / `deleted`, and the concept is still added to or
   dropped from `synced_concepts`. Check `stats["refused"]` if you need to know
   whether the landscape changed.
+- Seed mode (no model loaded) places a row at a seed derived from SHA-256 of
+  its concept name (`"Products:42"`), the same in every process, and
+  `delete_row` weakens that same seed. 0.12.0 used Python's `hash()`, which is
+  salted per process: seed-mode rows synced with 0.12.0 sit at positions that
+  cannot be recomputed, so re-sync them.
 
 ## 6. Protecting only real concepts
 

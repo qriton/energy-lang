@@ -3,11 +3,14 @@
 import json
 import os
 import sqlite3
+import subprocess
+import sys
 import tempfile
 
 import pytest
 import torch
 
+import qriton_hlm
 from qriton_hlm.core import BasinSurgeon, poly_interaction
 from qriton_hlm.db import (
     HLMSync,
@@ -16,6 +19,7 @@ from qriton_hlm.db import (
     HLMUnavailableError,
     CheckpointWorker,
     DBType,
+    _concept_seed,
     _make_concept_name,
     _serialize_row,
 )
@@ -225,6 +229,48 @@ class TestHLMSync:
         syncer.sync_row("Products", {"id": 2, "name": "G", "price": 2.0})
         assert syncer.synced_concepts == {"Products:1", "Products:2"}
         syncer.close()
+
+
+# ── Seed mode positions ─────────────────────────────────────────
+
+class _SeedRecorder(BasinSurgeon):
+    """BasinSurgeon that records the seeds HLMSync writes at."""
+
+    def __init__(self, device="cpu"):
+        super().__init__(device)
+        self.seeds = []
+
+    def inject(self, layer=0, seed=42, strength=None, force=False):
+        self.seeds.append(("inject", seed))
+        return super().inject(layer, seed, strength, force)
+
+    def weaken(self, layer=0, seed=42, factor=0.5):
+        self.seeds.append(("weaken", seed))
+        return super().weaken(layer, seed, factor)
+
+
+class TestSeedMode:
+    def test_concept_seed_is_the_same_in_every_process(self):
+        """hash() is salted per process (PYTHONHASHSEED); the seed must not be."""
+        root = os.path.dirname(os.path.dirname(os.path.abspath(qriton_hlm.__file__)))
+        code = "from qriton_hlm.db import _concept_seed; print(_concept_seed('Products:42'))"
+        seeds = set()
+        for hash_seed in ("1", "2"):
+            path = [root] + [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
+            env = dict(os.environ, PYTHONHASHSEED=hash_seed, PYTHONPATH=os.pathsep.join(path))
+            out = subprocess.run([sys.executable, "-c", code], env=env,
+                                 capture_output=True, text=True, check=True)
+            seeds.add(int(out.stdout))
+        assert seeds == {_concept_seed("Products:42")}
+
+    def test_delete_weakens_the_seed_sync_row_injected(self, sync_config):
+        surgeon = _SeedRecorder.from_checkpoint(sync_config.hlm_checkpoint_path)
+        syncer = HLMSync(sync_config, surgeon=surgeon)
+        syncer.sync_row("Products", {"id": 7, "name": "W", "price": 1.0})
+        syncer.delete_row("Products", 7)
+        syncer.close()
+        seed = _concept_seed("Products:7")
+        assert surgeon.seeds == [("inject", seed), ("weaken", seed)]
 
 
 # ── CheckpointWorker ────────────────────────────────────────────

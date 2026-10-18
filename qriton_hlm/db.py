@@ -22,6 +22,7 @@ Usage:
         syncer.checkpoint()
 """
 
+import hashlib
 import json
 import logging
 import sqlite3
@@ -77,6 +78,15 @@ class SyncConfig:
 def _make_concept_name(table: str, row_id: Any) -> str:
     """Deterministic concept name from table + row ID."""
     return f"{table}:{row_id}"
+
+
+def _concept_seed(concept_name: str) -> int:
+    """Seed-mode position of a concept, the same in every process.
+
+    SHA-256 of the name; Python's hash() is salted per process, so a row
+    synced in one process would be weakened elsewhere by another.
+    """
+    return int(hashlib.sha256(concept_name.encode("utf-8")).hexdigest(), 16) & 0x7FFFFFFF
 
 
 def _serialize_row(row: Dict[str, Any]) -> str:
@@ -193,7 +203,7 @@ class HLMSync:
             else:
                 # Seed mode: create basin at deterministic position (no text content)
                 # The basin is addressable but doesn't encode the text semantically
-                seed = hash(concept_name) & 0x7FFFFFFF
+                seed = _concept_seed(concept_name)
                 result = self._surgeon.inject(layer, seed=seed, strength=strength)
                 logger.warning(
                     "No model loaded — %s synced as seed basin only (no text content). "
@@ -259,8 +269,8 @@ class HLMSync:
             try:
                 result = self._surgeon.remove_concept(layer, concept_name)
             except (ValueError, KeyError):
-                # Concept not captured — weaken by seed instead
-                seed = hash(concept_name) & 0x7FFFFFFF
+                # Concept not captured — weaken the seed basin sync_row injected
+                seed = _concept_seed(concept_name)
                 result = self._surgeon.weaken(layer, seed=seed, factor=0.1)
                 logger.warning(
                     "Concept %s not in registry. Weakened by seed fallback.", concept_name

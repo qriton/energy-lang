@@ -69,6 +69,10 @@ On synthetic landscapes that store known concepts (d=64/K=5 and d=128/K=10;
 - CLI "target is basin" and `verify` checked the unit-norm target, which settles
   to zero, and printed False after a successful inject. They now check the
   target's sign pattern, the state the write creates.
+- `HLMSync` seed mode (no model loaded) derived a row's seed from Python's
+  `hash()` of its concept name, which is salted per process, so `delete_row` in
+  a later process weakened a different position than `sync_row` had written.
+  The seed is now SHA-256 of the concept name, the same in every process.
 
 ### Added
 
