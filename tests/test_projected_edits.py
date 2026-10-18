@@ -90,6 +90,33 @@ class TestProjectedInject:
             inject_basin(W, new_pattern(), mode="nope")
 
 
+class TestNoRoom:
+    """With at least as many protected states as dimensions, no write can
+    leave them all unchanged; projection must not write rounding noise."""
+
+    @pytest.mark.parametrize("K", [12, 16, 24])
+    def test_protected_field_unchanged_or_no_write(self, K):
+        d = 16
+        gen = torch.Generator().manual_seed(K)
+        xi = (torch.randint(0, 2, (K, d), generator=gen).float() * 2 - 1) * 0.9
+        W = (xi.T @ poly_interaction(xi, 3)) / d
+        t = torch.randn(d, generator=gen)
+        W_new = inject_basin(W, t, strength=0.5, beta=BETA, protected=list(xi))
+        F_prot = poly_interaction(xi, 3).T
+        assert torch.allclose(W_new @ F_prot, W @ F_prot, atol=1e-4)
+        if torch.linalg.matrix_rank(F_prot) == d:
+            assert W_new is W
+
+    def test_auto_and_remove_return_W_without_room(self):
+        d = 16
+        gen = torch.Generator().manual_seed(0)
+        xi = (torch.randint(0, 2, (40, d), generator=gen).float() * 2 - 1) * 0.9
+        W = (xi.T @ poly_interaction(xi, 3)) / d
+        t = torch.randn(d, generator=gen)
+        assert inject_basin(W, t, strength="auto", beta=BETA, protected=list(xi)) is W
+        assert remove_basin(W, xi[0], strength=0.5, beta=BETA, protected=list(xi)) is W
+
+
 class TestProjectedRemove:
     def test_removes_target_keeps_others(self, stored):
         W, xi, protected = stored

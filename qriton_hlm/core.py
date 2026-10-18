@@ -142,11 +142,19 @@ def dependent_basins(basin, states, cos_threshold=DEPENDENT_COS):
         b.unsqueeze(0), basin.unsqueeze(0)).item()) >= cos_threshold]
 
 
+# Below this fraction of the original norm, what _project_out leaves is
+# rounding noise, not a direction that misses the protected basins.
+_ROOM_TOL = 1e-4
+
+
 def _project_out(v, states, degree=3):
     """Remove from v its components along f(b) for every protected state b.
 
     After this, (p v^T) f(b) = 0 for each b: the write exerts no field on
-    the protected basins.
+    the protected basins. Returns a zero vector when only rounding noise is
+    left (the protected f(b) span every direction of v, e.g. with at least
+    as many protected states as dimensions): no write can leave them all
+    unchanged, and scaling the noise up would write onto them.
     """
     states = [b for b in states if b.norm() > 1e-8]
     if not states:
@@ -154,7 +162,10 @@ def _project_out(v, states, degree=3):
     B = torch.stack([poly_interaction(b, degree) for b in states]).to(v)
     U, S, _ = torch.linalg.svd(B.T, full_matrices=False)
     Q = U[:, S > S.max() * 1e-6]
-    return v - Q @ (Q.T @ v)
+    r = v - Q @ (Q.T @ v)
+    if r.norm() <= _ROOM_TOL * v.norm():
+        return torch.zeros_like(v)
+    return r
 
 
 def _scaled_outer(W, left, right, strength):
@@ -205,7 +216,8 @@ def inject_basin(W, target, degree=3, strength=1.0, beta=7.0,
     update away from `protected` basins (default: basins found by
     find_basins on W; pass [] to disable), so their pull is preserved.
     States aligned with target are not protected (writing there is a
-    strengthen).
+    strengthen). Returns W unchanged if the protected basins leave no room
+    for such a write.
 
     mode="legacy": 0.12.0 behaviour — converges from target first, then
     strengthens the basin it lands in, which is usually not the target.
@@ -244,6 +256,8 @@ def inject_basin(W, target, degree=3, strength=1.0, beta=7.0,
         protected = _default_protected(W, degree, beta)
     protected = _without(protected, pattern)
     right = _project_out(poly_interaction(pattern, degree), protected, degree)
+    if right.norm() == 0:
+        return W  # no room: every direction of the write acts on a protected basin
 
     def write(s):
         delta = _scaled_outer(W, pattern, right, s)
@@ -263,7 +277,8 @@ def remove_basin(W, target, degree=3, strength=1.0, beta=7.0,
     (default: find_basins on W), so only the target basin and its mirror
     -basin, which share the same weights, lose their pull. Basins built
     from the target (dependent_basins, e.g. mixtures containing it) are not
-    protected: they cannot survive its removal unchanged.
+    protected: they cannot survive its removal unchanged. Returns W
+    unchanged if the protected basins leave no room for such a write.
     strength="auto" uses the smallest strength on AUTO_STRENGTHS after which
     neither the basin nor its mirror attracts any more.
     """
@@ -282,6 +297,8 @@ def remove_basin(W, target, degree=3, strength=1.0, beta=7.0,
         keep = [b for b in protected if not any(
             b is x for x in dependent_basins(basin, protected))]
         right = _project_out(right, keep, degree)
+        if right.norm() == 0:
+            return W  # no room: every direction of the write acts on a protected basin
 
     def write(s):
         delta = _scaled_outer(W, basin, right, s)
