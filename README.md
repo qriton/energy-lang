@@ -1,7 +1,8 @@
 # Qriton HLM — Energy Language
 
 Energy Language is a toolkit for inspecting and editing polynomial Hopfield
-networks. It surveys the basins (stable states) of a Hopfield layer and edits
+networks. It surveys the basins (stable states) of a Hopfield layer (on trained layers,
+reported basins need not be fixed points of the update) and edits
 the layer's weights directly: inject, remove or move a basin. Every write made
 through the CLI or `BasinSurgeon` is checked before it is kept, and `restore`
 returns a layer to its original weights exactly.
@@ -36,9 +37,8 @@ Real output on a synthetic checkpoint (d=64, 5 stored concepts). The first
 inject was kept. The second would have changed 3.0% of the existing basins'
 decisions, more than the 2% budget, so the command printed `REFUSED` and left
 the layer unchanged. Basin counts come from random starts, so they vary between
-runs. Validation so far is on synthetic landscapes. Validation on trained HLM3
-checkpoints is in progress; early results show the decision guard refusing
-edits that would change more than its budget. Details will follow.
+runs. The editing results are from synthetic landscapes. On trained HLM3 checkpoints no tested edit was local enough to keep; see
+[Trained weights](RELEASE_NOTES.md#trained-weights) in the release notes.
 
 ## Install
 
@@ -94,9 +94,8 @@ Measured on synthetic landscapes with known concepts (20 per row, see
 | other concepts' cues changed by an inject | 37–39% (strength 0.5) | 0% (auto), 1% (0.5) |
 | remove reaches its target / other cues changed | 100% / 2% at 0.5, but `BasinSurgeon.remove` was always refused | 100% / 1% (auto) |
 
-These are synthetic results. Validation on trained HLM3 checkpoints is in
-progress; early results show the decision guard refusing edits that would change
-more than its budget. Results will be published separately. By
+These are synthetic results. On trained HLM3 checkpoints no tested edit was local enough to keep; see
+[Trained weights](RELEASE_NOTES.md#trained-weights) in the release notes. By
 default the protected basins are everything a random-start survey finds,
 spurious mixtures included, and that makes the gate strict: at auto strength it
 accepted 15–50% of edits, against 90–100% when only the real concepts were

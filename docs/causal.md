@@ -271,7 +271,7 @@ restore 5
 
 ## What This Approach Offers
 
-**Discrete interventions.** Each basin is a discrete attractor, so the readout of a knockout is discrete too: either other basins still converge to the same point, or they don't. That does not make the knockout free of side effects: basins built from the target, basins outside the protected set and attraction regions can change (see Limitations). This has been measured on synthetic landscapes only; validation on trained HLM3 checkpoints is in progress.
+**Discrete interventions.** Each basin is a discrete attractor, so the readout of a knockout is discrete too: either other basins still converge to the same point, or they don't. That does not make the knockout free of side effects: basins built from the target, basins outside the protected set and attraction regions can change (see Limitations). This has been measured on synthetic landscapes only. On trained HLM3 checkpoints no tested edit was local enough to keep; see [Trained weights](../RELEASE_NOTES.md#trained-weights) in the release notes.
 
 **Units from the dynamics.** The causal units are the basins the layer's own dynamics produce, rather than a decomposition the researcher chooses.
 

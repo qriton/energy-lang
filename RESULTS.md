@@ -123,9 +123,8 @@ mixture 33 times.
 
 - **The landscapes are synthetic, with random targets.** No trained HLM
   checkpoint is in these measurements. Captured concepts in a trained W may
-  behave differently. Validation on trained HLM3 checkpoints is in progress;
-  early results show the decision guard refusing edits that would change more
-  than its budget. Results will be published separately.
+  behave differently. On trained HLM3 checkpoints no tested edit was local enough to keep;
+  see Trained weights in RELEASE_NOTES.md.
 - **The thresholds are mine:** cos 0.95 to count as reached, cos 0.9 to count
   as moved, 15% cue noise, a 2% guard limit and `DEPENDENT_COS` 0.4.
 - **Fixed-mode protection only covers basins `find_basins` can see.** Basins it

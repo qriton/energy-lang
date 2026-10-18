@@ -23,6 +23,9 @@ On synthetic landscapes that store known concepts (d=64/K=5 and d=128/K=10,
 | other concepts still recalled | 62–66% | 98–99% |
 | protected basins' field `W f(b)` | changed | unchanged (exact, tested) |
 
+These rows are synthetic-landscape results; they are not evidence of locality on
+trained models (see Trained weights below).
+
 - Remove at auto strength (≈0.29) took out its target 100% of the time and
   changed 1% of other concepts' cues. In 0.12.0, `BasinSurgeon.remove` was
   refused 60/60 times by its own gate.
@@ -153,9 +156,13 @@ Lower `params['guard_probes']` to trade resolution for speed.
 
 ## Trained weights
 
-Validation on trained HLM3 checkpoints is in progress; early results show the
-decision guard refusing edits that would change more than its budget. Results
-will be published separately.
+We measured the 0.13.0 editing method on two trained HLM3 language checkpoints. On the 35.9M-parameter checkpoint (layers 6 and 7, behaviour measured on WikiText-103), no edit met our success bar of reaching its target while changing at most 1% of held-out next-token predictions: 0 of 40 edits on each layer. At auto strength the editor reached 29 of 30 inject and move targets on layer 7, but those edits changed 15.5% of held-out predictions on average (8.4% on layer 6). The decision guard refused every one of these edits (240 of 240 on layer 7, 100 of 100 on layer 6), so the model stayed unchanged, but there was nothing safe to keep. On these trained layers the basins that a survey reports are not fixed points of the layer's update.
+
+On the 8.9M-parameter checkpoint, measured on text sampled from the model because its tokenizer was not available, the guard accepted some writes that changed up to 14.7% of predictions, because its protected set was empty. When you edit trained weights, pass an explicit protected set with `guard(layer, protected=...)` and check the effect on your own held-out data.
+
+The 0.12.0 editor reached none of its targets on these checkpoints and, at its default strength, changed more predictions than 0.13.0 at auto strength.
+
+Energy Language is therefore validated as an editing method on synthetic landscapes only. On trained HLM3 checkpoints, use it to inspect layers and to run experiments that are either refused or restored exactly, not to make local behaviour changes.
 
 ## Install
 

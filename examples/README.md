@@ -46,7 +46,5 @@ Verified locally against the released checkpoint
 `survey-all`, `capture` / `inject-concept` / `apply` / `restore`, and
 `generate` all work end-to-end. That check predates 0.13 and has not been re-run
 with the new edits; under the gate the `inject-concept` step may now be refused.
-The 0.13 edits have been measured on synthetic landscapes. Validation on trained
-HLM3 checkpoints is in progress; early results show the decision guard refusing
-edits that would change more than its budget. Results will be published
-separately.
+The 0.13 edits have been measured on synthetic landscapes. On trained HLM3 checkpoints no tested edit was local enough to keep; see
+[Trained weights](../RELEASE_NOTES.md#trained-weights) in the release notes.
