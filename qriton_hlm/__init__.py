@@ -30,6 +30,7 @@ from qriton_hlm.core import (
     move_basin,
     verify_basin_exists,
     certify_compact_edit,
+    certify_decisions,
     load_W_from_checkpoint,
     BasinSurgeon,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "move_basin",
     "verify_basin_exists",
     "certify_compact_edit",
+    "certify_decisions",
     "load_W_from_checkpoint",
     "BasinSurgeon",
     # db module available as qriton_hlm.db

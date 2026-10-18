@@ -2,6 +2,36 @@
 
 All notable changes to `qriton-hlm` are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- `inject_basin` wrote on whatever basin the target converged to (an existing
+  concept, its mirror or a spurious mixture), never at the target. It now writes
+  the target's sign pattern and projects the update away from protected basins,
+  so their field is unchanged exactly (`mode="projected"`, the default).
+- `remove_basin` / `move_basin` protect the other basins the same way; basins
+  built from a removed target (`dependent_basins`) are not protected.
+- `BasinSurgeon.remove` was refused every time (the target was in its own
+  protected set). `remove_concept`, `consolidate`, `causal_intervene` and the
+  CLI `remove-concept`, `strengthen`, `weaken` and `causal intervene` wrote
+  without any check. Every write path now goes through the gate.
+- CLI inject/remove/move ignored the layer's beta.
+- `BasinSurgeon.guard()` settings were stored but never read; `max_changed_pct`
+  is now enforced.
+
+### Added
+
+- `certify_decisions(W, W_new, ...)` — decision-stability guard: the fraction
+  of probe decisions (noisy cues of protected basins) whose settling point
+  moves. The gate refuses edits above `params['max_changed']` (2%) and returns
+  the changed probes. Results carry it under `retention["decision"]`.
+- `strength="auto"` — the smallest strength on `AUTO_STRENGTHS` that does the
+  edit. Default for `BasinSurgeon` projected edits without an explicit strength.
+- `mode="legacy"` (functions) and `params['edit_mode'] = 'legacy'`
+  (`BasinSurgeon`) restore 0.12.0 behaviour exactly.
+- `measure_edits.py` and `RESULTS.md`: measured before/after.
+
 ## v0.12.0 (2026-09-02)
 
 ### Changed

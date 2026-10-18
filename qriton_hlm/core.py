@@ -90,81 +90,347 @@ def find_basins(W, d_model, degree=3, num_inits=200, max_iter=100,
 
 
 # ── Basin surgery operations ─────────────────────────────────────────
+#
+# Two write modes:
+#   "projected" (default) writes at the target itself and removes from the
+#     update every component that would act on the protected basins, so
+#     their local field W f(b) is unchanged exactly.
+#   "legacy" is the 0.12.0 behaviour: converge from the target first and
+#     reinforce wherever that lands (often an existing concept, its mirror
+#     or a spurious mixture), with no protection of other basins.
 
-def inject_basin(W, target, degree=3, strength=1.0, beta=7.0):
-    """Inject/strengthen a basin near target using Hebbian learning.
-
-    First converges from target to find the nearest natural basin,
-    then strengthens that basin with a Hebbian outer-product update.
-    strength=1.0 adds a perturbation with Frobenius norm equal to W's.
-
-    For concept injection (target from capture()), the target is
-    already at the right scale. For unit-normalized targets (from
-    random seeds), auto-scales to the dynamics' operating range.
-    """
-    d = W.shape[0]
-
-    # If target is near unit-norm (from random seed), scale up to
-    # the dynamics' operating range before converging
-    t = target.clone()
-    if t.norm() < 2.0:
-        t = t / t.norm() * (0.5 * d ** 0.5)
-
-    # Converge from scaled target to find the nearest natural basin
-    basin, _, _ = _converge(t, W, degree, beta=beta)
-
-    # If basin collapsed to zero, use sign pattern at natural scale
-    if basin.norm() < 1e-6:
-        direction = target / target.norm().clamp(min=1e-8)
-        basin = torch.sign(direction) * 0.9
-
-    ft = poly_interaction(basin, degree)
-    outer = torch.outer(basin, ft)
-    outer_norm = outer.norm()
-    if outer_norm < 1e-10:
-        return W
-
-    # Scale so delta_W has Frobenius norm = strength * ||W||_F
-    w_norm = W.norm().clamp(min=1e-10)
-    alpha = strength * w_norm / outer_norm
-
-    return W + alpha * outer
+EDIT_MODES = ("projected", "legacy")
 
 
-def remove_basin(W, target, degree=3, strength=1.0, beta=7.0):
-    """Remove/weaken a basin near target.
+def _check_mode(mode):
+    if mode not in EDIT_MODES:
+        raise ValueError(f"mode must be one of {EDIT_MODES}, got {mode!r}")
 
-    Converges to the nearest basin and applies anti-Hebbian update.
-    """
-    d = W.shape[0]
+
+def _to_operating_scale(target, d):
     t = target.clone()
     if t.norm() < 2.0:
         t = t / t.norm().clamp(min=1e-8) * (0.5 * d ** 0.5)
+    return t
+
+
+def _default_protected(W, degree=3, beta=7.0):
+    basins, _, _ = find_basins(W, W.shape[0], degree=degree, num_inits=64,
+                               max_iter=60, beta=beta, device=W.device)
+    return basins
+
+
+def _without(states, anchor, cos_threshold=0.95):
+    """Drop states aligned with anchor (or with its mirror -anchor)."""
+    if anchor.norm() < 1e-8:
+        return list(states)
+    return [b for b in states
+            if b.norm() < 1e-8 or abs(F.cosine_similarity(
+                b.unsqueeze(0), anchor.unsqueeze(0)).item()) < cos_threshold]
+
+
+DEPENDENT_COS = 0.4
+
+
+def dependent_basins(basin, states, cos_threshold=DEPENDENT_COS):
+    """Basins built from `basin` (|cos| >= cos_threshold, e.g. mixture states
+    containing it). Removing a basin necessarily changes these, so a removal
+    neither protects them nor counts their changes as collateral."""
+    if basin.norm() < 1e-8:
+        return []
+    return [b for b in states if b.norm() > 1e-8 and abs(F.cosine_similarity(
+        b.unsqueeze(0), basin.unsqueeze(0)).item()) >= cos_threshold]
+
+
+def _project_out(v, states, degree=3):
+    """Remove from v its components along f(b) for every protected state b.
+
+    After this, (p v^T) f(b) = 0 for each b: the write exerts no field on
+    the protected basins.
+    """
+    states = [b for b in states if b.norm() > 1e-8]
+    if not states:
+        return v
+    B = torch.stack([poly_interaction(b, degree) for b in states]).to(v)
+    U, S, _ = torch.linalg.svd(B.T, full_matrices=False)
+    Q = U[:, S > S.max() * 1e-6]
+    return v - Q @ (Q.T @ v)
+
+
+def _scaled_outer(W, left, right, strength):
+    outer = torch.outer(left, right)
+    outer_norm = outer.norm()
+    if outer_norm < 1e-10:
+        return None
+    w_norm = W.norm().clamp(min=1e-10)
+    return (strength * w_norm / outer_norm) * outer
+
+
+AUTO_STRENGTHS = (0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.7, 1.0, 1.5, 2.0)
+
+
+def _settle_fraction(W, pattern, degree=3, beta=7.0, trials=5, rel=0.1, seed=0):
+    """Fraction of seeded 10%-noised starts at pattern that converge back onto it."""
+    gen = torch.Generator(device='cpu').manual_seed(seed)
+    scale = max(pattern.norm().item() * rel, 0.1)
+    hits = 0
+    for _ in range(trials):
+        noise = torch.randn(pattern.shape, generator=gen).to(pattern)
+        x, _, _ = _converge(pattern + scale * noise, W, degree, beta=beta)
+        if x.norm() > 1e-6 and F.cosine_similarity(
+                x.unsqueeze(0), pattern.unsqueeze(0)).item() > 0.95:
+            hits += 1
+    return hits / trials
+
+
+def _auto(write, done):
+    """Smallest strength on the AUTO_STRENGTHS ladder whose write succeeds."""
+    W_new = None
+    for s in AUTO_STRENGTHS:
+        W_new = write(s)
+        if done(W_new):
+            return W_new
+    return W_new
+
+
+def inject_basin(W, target, degree=3, strength=1.0, beta=7.0,
+                 mode="projected", protected=None):
+    """Inject a basin at target with a Hebbian write.
+
+    strength=1.0 adds a perturbation with Frobenius norm equal to W's.
+    strength="auto" uses the smallest strength on AUTO_STRENGTHS that makes
+    the target an attractor (any mode; checked with seeded noisy starts).
+
+    mode="projected" (default): writes at target itself and projects the
+    update away from `protected` basins (default: basins found by
+    find_basins on W; pass [] to disable), so their pull is preserved.
+    States aligned with target are not protected (writing there is a
+    strengthen).
+
+    mode="legacy": 0.12.0 behaviour — converges from target first, then
+    strengthens the basin it lands in, which is usually not the target.
+    """
+    _check_mode(mode)
+    d = W.shape[0]
+
+    if mode == "legacy":
+        # If target is near unit-norm (from random seed), scale up to
+        # the dynamics' operating range before converging
+        t = _to_operating_scale(target, d)
+
+        # Converge from scaled target to find the nearest natural basin
+        basin, _, _ = _converge(t, W, degree, beta=beta)
+
+        # If basin collapsed to zero, use sign pattern at natural scale
+        if basin.norm() < 1e-6:
+            direction = target / target.norm().clamp(min=1e-8)
+            basin = torch.sign(direction) * 0.9
+
+        def write_legacy(s):
+            delta = _scaled_outer(W, basin, poly_interaction(basin, degree), s)
+            return W if delta is None else W + delta
+
+        if strength == "auto":
+            pattern = torch.sign(target) * 0.9
+            return _auto(write_legacy, lambda Wn: _settle_fraction(Wn, pattern, degree, beta) == 1.0)
+        return write_legacy(strength)
+
+    if target.norm() < 1e-8:
+        return W
+    # The dynamics settle on saturated tanh states, so the attractor that can
+    # exist "at" a direction is its sign pattern; write exactly that.
+    pattern = torch.sign(target) * 0.9
+    if protected is None:
+        protected = _default_protected(W, degree, beta)
+    protected = _without(protected, pattern)
+    right = _project_out(poly_interaction(pattern, degree), protected, degree)
+
+    def write(s):
+        delta = _scaled_outer(W, pattern, right, s)
+        return W if delta is None else W + delta
+
+    if strength == "auto":
+        return _auto(write, lambda Wn: _settle_fraction(Wn, pattern, degree, beta) == 1.0)
+    return write(strength)
+
+
+def remove_basin(W, target, degree=3, strength=1.0, beta=7.0,
+                 mode="projected", protected=None):
+    """Remove/weaken the basin nearest to target (anti-Hebbian write).
+
+    Converges from target to find the basin to remove. In "projected"
+    mode the update is projected away from the other `protected` basins
+    (default: find_basins on W), so only the target basin and its mirror
+    -basin, which share the same weights, lose their pull. Basins built
+    from the target (dependent_basins, e.g. mixtures containing it) are not
+    protected: they cannot survive its removal unchanged.
+    strength="auto" uses the smallest strength on AUTO_STRENGTHS after which
+    neither the basin nor its mirror attracts any more.
+    """
+    _check_mode(mode)
+    d = W.shape[0]
+    t = _to_operating_scale(target, d)
 
     basin, _, _ = _converge(t, W, degree, beta=beta)
     if basin.norm() < 1e-6:
         return W  # nothing to remove
 
-    ft = poly_interaction(basin, degree)
-    outer = torch.outer(basin, ft)
-    outer_norm = outer.norm()
-    if outer_norm < 1e-10:
-        return W
+    right = poly_interaction(basin, degree)
+    if mode == "projected":
+        if protected is None:
+            protected = _default_protected(W, degree, beta)
+        keep = [b for b in protected if not any(
+            b is x for x in dependent_basins(basin, protected))]
+        right = _project_out(right, keep, degree)
 
-    w_norm = W.norm().clamp(min=1e-10)
-    alpha = strength * w_norm / outer_norm
+    def write(s):
+        delta = _scaled_outer(W, basin, right, s)
+        return W if delta is None else W - delta
 
-    return W - alpha * outer
+    if strength == "auto":
+        return _auto(write, lambda Wn: _settle_fraction(Wn, basin, degree, beta) == 0.0
+                     and _settle_fraction(Wn, -basin, degree, beta) == 0.0)
+    return write(strength)
 
 
-def move_basin(W, source, destination, degree=3, strength=1.0, beta=7.0):
+def move_basin(W, source, destination, degree=3, strength=1.0, beta=7.0,
+               mode="projected", protected=None):
     """Move a basin from source to destination.
 
-    Equivalent to remove(source) + inject(destination).
+    Equivalent to remove(source) + inject(destination). In "projected"
+    mode both writes protect the same basins of the original W (minus the
+    source), found once before the edit.
     """
-    W = remove_basin(W, source, degree, strength, beta)
-    W = inject_basin(W, destination, degree, strength, beta)
+    _check_mode(mode)
+    if mode == "projected":
+        if protected is None:
+            protected = _default_protected(W, degree, beta)
+        src_basin, _, _ = _converge(_to_operating_scale(source, W.shape[0]), W,
+                                    degree, beta=beta)
+        dependents = dependent_basins(src_basin, protected)
+        kept = [b for b in protected if not any(b is x for x in dependents)]
+    W = remove_basin(W, source, degree, strength, beta, mode=mode, protected=protected)
+    if mode == "projected":
+        protected = kept
+    W = inject_basin(W, destination, degree, strength, beta, mode=mode, protected=protected)
     return W
+
+
+# ── Decision-stability guard ─────────────────────────────────────────
+
+def _gate_sets(protected, allowed=None, exclude=None):
+    """Basins the retention certificate keeps, and states whose decisions may
+    change: an edit's removed targets and the basins built from them."""
+    allowed = list(allowed or [])
+    kept = list(protected)
+    for e in (exclude or []):
+        if e.norm() < 1e-8:
+            continue
+        dependents = dependent_basins(e, kept)
+        allowed.extend(dependents)
+        kept = [b for b in _without(kept, e) if not any(b is x for x in dependents)]
+    return kept, allowed
+
+
+def converge_batch(X, W, degree=3, max_iter=100, tau_start=0.9, tau_end=0.1,
+                   beta=7.0, eps=5e-3):
+    """_converge applied to every row of X; each row stops when it settles."""
+    X = X.clone()
+    active = torch.ones(X.shape[0], dtype=torch.bool, device=X.device)
+    for t in range(max_iter):
+        if not active.any():
+            break
+        tau = tau_start + (tau_end - tau_start) * (t / max_iter)
+        idx = active.nonzero(as_tuple=True)[0]
+        Xa = X[idx]
+        Xn = (1 - tau) * Xa + tau * torch.tanh(beta * poly_interaction(Xa, degree) @ W.T)
+        delta = (Xn - Xa).norm(dim=1) / (Xa.norm(dim=1) + 1e-8)
+        done = delta < eps
+        X[idx[~done]] = Xn[~done]
+        active[idx[done]] = False
+    return X
+
+
+def default_probes(W, protected=None, n_cue=64, n_random=0, flip=0.15,
+                   seed=0, degree=3, beta=7.0):
+    """A fixed, seeded probe set: noisy cues of each protected basin (inputs
+    the model currently decides as that concept), optionally plus random
+    starts (the distribution find_basins uses). Random starts are off by
+    default: far from every concept, their settling point is not a decision
+    anyone relies on, and a new concept legitimately takes a share of them."""
+    d = W.shape[0]
+    if protected is None:
+        protected = _default_protected(W, degree, beta)
+    gen = torch.Generator(device='cpu').manual_seed(int(seed))
+    rows = []
+    for b in protected:
+        if b.norm() < 1e-8:
+            continue
+        pattern = torch.sign(b.detach().cpu()) * 0.9
+        for _ in range(n_cue):
+            mask = torch.rand(d, generator=gen) < flip
+            cue = pattern.clone()
+            cue[mask] *= -1
+            rows.append(cue)
+    if n_random:
+        rows.extend(torch.randn(n_random, d, generator=gen) * 0.5)
+    if not rows:
+        return torch.zeros(0, d, device=W.device, dtype=W.dtype)
+    X = torch.stack(rows)
+    return X.to(W.device, W.dtype)
+
+
+def certify_decisions(W, W_new, probes=None, protected=None, allowed=None,
+                      max_changed=0.02, degree=3, beta=7.0, cos_threshold=0.9,
+                      max_iter=100):
+    """Decision-stability guard for a W edit.
+
+    Converges a fixed probe set on W and on W_new and counts probes whose
+    final state moved (cos < cos_threshold). Not counted, as the intended
+    effect: probes that settled on an `allowed` state before the edit
+    (what a remove/move targets), and probes that settled on no protected
+    basin before and on an `allowed` state after (a new concept taking
+    over spurious territory). A decision that switches from a protected
+    basin to the new concept is counted. The edit is accepted only if the
+    changed fraction of the remaining probes is <= max_changed.
+
+    Returns a dict with accepted, changed_fraction, changed (probe indices),
+    n_probes, n_intended and max_changed.
+    """
+    if protected is None:
+        protected = _default_protected(W, degree, beta)
+    if probes is None:
+        probes = default_probes(W, protected, degree=degree, beta=beta)
+    before = converge_batch(probes, W, degree, max_iter=max_iter, beta=beta)
+    after = converge_batch(probes, W_new, degree, max_iter=max_iter, beta=beta)
+
+    both_zero = (before.norm(dim=1) < 1e-6) & (after.norm(dim=1) < 1e-6)
+    moved = (F.cosine_similarity(before, after, dim=1) < cos_threshold) & ~both_zero
+
+    def on(states, refs):
+        hit = torch.zeros(states.shape[0], dtype=torch.bool, device=states.device)
+        for r in refs:
+            if r.norm() > 1e-8:
+                hit |= F.cosine_similarity(
+                    states, r.to(states).unsqueeze(0), dim=1).abs() > 0.95
+        return hit
+
+    allowed = [torch.sign(a) for a in (allowed or [])]
+    was_protected = on(before, protected)
+    intended = on(before, allowed) | (~was_protected & on(after, allowed))
+
+    counted = ~intended
+    changed = moved & counted
+    n_counted = int(counted.sum().item())
+    fraction = changed.sum().item() / max(1, n_counted)
+    return {
+        "accepted": fraction <= max_changed,
+        "changed_fraction": float(fraction),
+        "changed": changed.nonzero(as_tuple=True)[0].tolist(),
+        "n_probes": int(probes.shape[0]),
+        "n_intended": int(intended.sum().item()),
+        "max_changed": float(max_changed),
+    }
 
 
 # ── Verification ─────────────────────────────────────────────────────
@@ -334,6 +600,14 @@ class BasinSurgeon:
             'inits': 200,
             'strength': 1.0,
             'degree': 3,
+            # "projected" writes at the target and protects other basins;
+            # "legacy" restores 0.12.0 behaviour.
+            'edit_mode': 'projected',
+            # Decision-stability guard: max fraction of cue decisions an edit
+            # may change (overridden per layer by guard(max_changed_pct=...)).
+            'max_changed': 0.02,
+            # With no explicit strength, projected edits use strength="auto".
+            'auto_strength': True,
         }
 
     @classmethod
@@ -493,24 +767,65 @@ class BasinSurgeon:
         self._history.append(('survey', layer, results['num_basins']))
         return results
 
+    def _projected(self):
+        return self.params.get('edit_mode', 'projected') == 'projected'
+
     def _protected_basins(self, layer, W, beta):
         cached = self._basin_cache.get(layer)
         if cached:
             return cached
+        inits, iters = (64, 60) if self._projected() else (24, 40)
         basins, _, _ = find_basins(
-            W, W.shape[0], num_inits=24, max_iter=40,
+            W, W.shape[0], num_inits=inits, max_iter=iters,
             beta=beta, device=self.device)
         self._basin_cache[layer] = list(basins)
         return basins
 
-    def _commit_compact(self, layer, W, W_new, force=False):
-        """Cache W_new only if protected basins survive, unless force=True."""
+    def _max_changed(self, layer):
+        g = getattr(self, '_guards', {}).get(layer, {})
+        if g.get('max_changed_pct') is not None:
+            return g['max_changed_pct'] / 100.0
+        return self.params.get('max_changed', 0.02)
+
+    def _strength(self, strength):
+        if strength is not None:
+            return strength
+        if self._projected() and self.params.get('auto_strength', True):
+            return "auto"
+        return self.params['strength']
+
+    def _edit_kwargs(self, layer, W, beta):
+        if not self._projected():
+            return {'mode': 'legacy'}
+        return {'mode': 'projected',
+                'protected': self._protected_basins(layer, W, beta)}
+
+    def _commit_compact(self, layer, W, W_new, force=False, allowed=None, exclude=None):
+        """Cache W_new only if the edit passes the gate, unless force=True.
+
+        Legacy mode: the 0.12.0 retention certificate over basins found from
+        random starts. Projected mode: the retention certificate over the
+        protected basins minus the ones the edit targets (`exclude`), plus the
+        decision-stability guard (certify_decisions) with `allowed` as the
+        intended targets.
+        """
         beta = self.get_beta(layer)
+        degree = self.params['degree']
         protected = self._protected_basins(layer, W, beta)
-        cert = certify_compact_edit(
-            W, W_new, protected,
-            degree=self.params['degree'], beta=beta,
-        )
+        if not self._projected():
+            cert = certify_compact_edit(W, W_new, protected, degree=degree, beta=beta)
+        else:
+            kept, allowed = _gate_sets(protected, allowed, exclude)
+            cert = certify_compact_edit(W, W_new, kept, degree=degree, beta=beta)
+            decision = certify_decisions(
+                W, W_new, protected=protected, allowed=allowed,
+                max_changed=self._max_changed(layer), degree=degree, beta=beta)
+            cert["decision"] = decision
+            if cert["accepted"] and not decision["accepted"]:
+                cert["accepted"] = False
+                cert["promoted"] = True
+                cert["reason"] = "decisions_changed"
+                cert["compact_edit"] = "refused_promoted"
         cert["forced"] = bool(force)
         if cert["accepted"] or force:
             if layer not in self._w_backups:
@@ -523,7 +838,8 @@ class BasinSurgeon:
                 cert["compact_edit"] = "forced"
         else:
             cert["applied"] = False
-            cert["reason"] = "protected_basin_lost"
+            if cert["reason"] != "decisions_changed":
+                cert["reason"] = "protected_basin_lost"
         return cert
 
     def _to_basin_scale(self, target, W, beta):
@@ -539,8 +855,8 @@ class BasinSurgeon:
         return basin
 
     def inject(self, layer=0, seed=42, strength=None, force=False):
-        """Propose a Hebbian inject; commit only if protected basins survive."""
-        strength = strength or self.params['strength']
+        """Propose a Hebbian inject; commit only if it passes the gate."""
+        strength = self._strength(strength)
         W = self.get_W(layer)
         d = W.shape[0]
         beta = self.get_beta(layer)
@@ -551,8 +867,9 @@ class BasinSurgeon:
         exists_before, _, cos_before, _ = verify_basin_exists(
             W, basin_before, beta=beta)
 
-        W_new = inject_basin(W, target, strength=strength, beta=beta)
-        cert = self._commit_compact(layer, W, W_new, force=force)
+        W_new = inject_basin(W, target, strength=strength, beta=beta,
+                             **self._edit_kwargs(layer, W, beta))
+        cert = self._commit_compact(layer, W, W_new, force=force, allowed=[target])
         applied_W = self.get_W(layer)
 
         # After injection, find the basin again on the (maybe unchanged) W
@@ -571,9 +888,9 @@ class BasinSurgeon:
             'retention': cert,
         }
 
-    def remove(self, layer=0, seed=42, strength=None):
-        """Remove closest basin to seed target."""
-        strength = strength or self.params['strength']
+    def remove(self, layer=0, seed=42, strength=None, force=False):
+        """Remove closest basin to seed target (through the gate)."""
+        strength = self._strength(strength)
         W = self.get_W(layer)
         d = W.shape[0]
         beta = self.get_beta(layer)
@@ -586,8 +903,10 @@ class BasinSurgeon:
                     for b in basins]
             target = basins[int(np.argmax(sims))]
 
-        W_new = remove_basin(W, target, strength=strength, beta=beta)
-        cert = self._commit_compact(layer, W, W_new, force=False)
+        W_new = remove_basin(W, target, strength=strength, beta=beta,
+                             **self._edit_kwargs(layer, W, beta))
+        cert = self._commit_compact(layer, W, W_new, force=force,
+                                    allowed=[target], exclude=[target])
         applied_W = self.get_W(layer)
         exists_after, _, cos_after, _ = verify_basin_exists(
             applied_W, target, beta=beta)
@@ -601,9 +920,9 @@ class BasinSurgeon:
             'retention': cert,
         }
 
-    def move(self, layer=0, seed=42, strength=None):
-        """Move closest basin to a new location."""
-        strength = strength or self.params['strength']
+    def move(self, layer=0, seed=42, strength=None, force=False):
+        """Move closest basin to a new location (through the gate)."""
+        strength = self._strength(strength)
         W = self.get_W(layer)
         d = W.shape[0]
         beta = self.get_beta(layer)
@@ -618,8 +937,10 @@ class BasinSurgeon:
             source = basins[int(np.argmax(sims))]
 
         dest = self._make_target(int(seed) + 1000, d)
-        W_new = move_basin(W, source, dest, strength=strength, beta=beta)
-        cert = self._commit_compact(layer, W, W_new, force=False)
+        W_new = move_basin(W, source, dest, strength=strength, beta=beta,
+                           **self._edit_kwargs(layer, W, beta))
+        cert = self._commit_compact(layer, W, W_new, force=force,
+                                    allowed=[source, dest], exclude=[source])
         self._history.append(('move', layer, seed, strength, cert["applied"]))
         return {
             'layer': layer, 'W_after': self.get_W(layer),
@@ -788,15 +1109,16 @@ class BasinSurgeon:
         if concept['centroid'] is None:
             raise ValueError(f"Concept '{concept_name}' has no samples yet")
 
-        strength = strength or self.params['strength']
+        strength = self._strength(strength)
         target = concept['centroid'].to(self.device)
         W = self.get_W(layer)
         beta = self.get_beta(layer)
 
         exists_before, _, cos_before, _ = verify_basin_exists(
             W, target, beta=beta)
-        W_new = inject_basin(W, target, strength=strength, beta=beta)
-        cert = self._commit_compact(layer, W, W_new, force=False)
+        W_new = inject_basin(W, target, strength=strength, beta=beta,
+                             **self._edit_kwargs(layer, W, beta))
+        cert = self._commit_compact(layer, W, W_new, force=False, allowed=[target])
         applied_W = self.get_W(layer)
         exists_after, _, cos_after, _ = verify_basin_exists(
             applied_W, target, beta=beta)
@@ -816,27 +1138,38 @@ class BasinSurgeon:
             'retention': cert,
         }
 
-    def remove_concept(self, layer, concept_name, strength=None):
-        """Remove a concept's basin from the energy landscape."""
+    def remove_concept(self, layer, concept_name, strength=None, force=False):
+        """Remove a concept's basin from the energy landscape.
+
+        Goes through the same gate as every other edit: a removal that would
+        change other decisions is refused (W unchanged) unless force=True.
+        """
         if concept_name not in self._concepts:
             raise ValueError(f"Unknown concept '{concept_name}'")
 
-        strength = strength or self.params['strength']
+        strength = self._strength(strength)
         target = self._concepts[concept_name]['centroid'].to(self.device)
         W = self.get_W(layer)
         beta = self.get_beta(layer)
 
-        W_new = remove_basin(W, target, strength=strength, beta=beta)
+        basin = self._to_basin_scale(target, W, beta)
+        W_new = remove_basin(W, target, strength=strength, beta=beta,
+                             **self._edit_kwargs(layer, W, beta))
+        cert = self._commit_compact(layer, W, W_new, force=force,
+                                    allowed=[basin], exclude=[basin])
+        applied_W = self.get_W(layer)
         exists_after, _, cos_after, _ = verify_basin_exists(
-            W_new, target, beta=beta)
+            applied_W, target, beta=beta)
 
-        self._w_cache[layer] = W_new
-        self._history.append(('remove_concept', layer, concept_name, strength))
+        self._history.append(('remove_concept', layer, concept_name, strength,
+                              cert["applied"]))
 
         return {
             'concept': concept_name,
             'exists_after': exists_after,
             'cos_after': cos_after,
+            'applied': cert["applied"],
+            'retention': cert,
         }
 
     def list_concepts(self):
@@ -1047,8 +1380,9 @@ class BasinSurgeon:
             target = basins[int(np.argmax(sims))]
 
         strength = self.params['strength'] * factor
-        W_new = inject_basin(W, target, strength=strength, beta=beta)
-        cert = self._commit_compact(layer, W, W_new, force=False)
+        W_new = inject_basin(W, target, strength=strength, beta=beta,
+                             **self._edit_kwargs(layer, W, beta))
+        cert = self._commit_compact(layer, W, W_new, force=False, allowed=[target])
         applied_W = self.get_W(layer)
         self._history.append(('strengthen', layer, seed, factor, cert["applied"]))
 
@@ -1076,8 +1410,10 @@ class BasinSurgeon:
             target = basins[int(np.argmax(sims))]
 
         strength = self.params['strength'] * factor
-        W_new = remove_basin(W, target, strength=strength, beta=beta)
-        cert = self._commit_compact(layer, W, W_new, force=False)
+        W_new = remove_basin(W, target, strength=strength, beta=beta,
+                             **self._edit_kwargs(layer, W, beta))
+        cert = self._commit_compact(layer, W, W_new, force=False,
+                                    allowed=[target], exclude=[target])
         applied_W = self.get_W(layer)
         self._history.append(('weaken', layer, seed, factor, cert["applied"]))
 
@@ -1330,11 +1666,14 @@ class BasinSurgeon:
                            max(b['energy'] for b in basin_data)) if basin_data else (0, 0),
         }
 
-    def guard(self, layer, max_remove_pct=10.0):
+    def guard(self, layer, max_remove_pct=10.0, max_changed_pct=None):
         """Set guard constraints for a layer.
 
-        Prevents removing more than max_remove_pct% of basins.
-        Returns current basin count and threshold.
+        max_changed_pct: decision-stability threshold for every edit on this
+        layer (default: params['max_changed'] * 100). Enforced by the gate.
+        max_remove_pct: recorded basin-count floor (informational; the
+        decision guard is what refuses edits).
+        Returns current basin count and thresholds.
         """
         W = self.get_W(layer)
         d = W.shape[0]
@@ -1349,6 +1688,7 @@ class BasinSurgeon:
             'baseline_count': len(basins),
             'min_count': threshold,
             'max_remove_pct': max_remove_pct,
+            'max_changed_pct': max_changed_pct,
         }
         self._history.append(('guard', layer, max_remove_pct))
         return {
@@ -1356,6 +1696,7 @@ class BasinSurgeon:
             'current_basins': len(basins),
             'min_allowed': threshold,
             'max_remove_pct': max_remove_pct,
+            'max_changed_pct': self._max_changed(layer) * 100,
         }
 
     # ── Causal discovery & intervention ─────────────────────────────
@@ -1391,7 +1732,8 @@ class BasinSurgeon:
 
         for i in range(n):
             # Remove basin i
-            W_knocked = remove_basin(W_orig, basins[i], strength=strength, beta=beta)
+            W_knocked = remove_basin(W_orig, basins[i], strength=strength, beta=beta,
+                                     **self._edit_kwargs(layer, W_orig, beta))
 
             # Check how all other basins changed
             for j in range(n):
@@ -1429,14 +1771,15 @@ class BasinSurgeon:
         }
 
     def causal_intervene(self, layer=0, basin_idx=0, operation='remove',
-                          strength=None, num_inits=50):
+                          strength=None, num_inits=50, force=False):
         """Perform a do-operator intervention on a specific basin.
 
         do(X) = remove or replace basin X, then measure the full
         downstream effect on the landscape.
 
         Returns before/after basin counts, which basins were affected,
-        and the energy landscape delta.
+        and the energy landscape delta. The intervention is kept only if it
+        passes the same gate as other edits (or force=True).
         """
         strength = strength or self.params['strength']
         W_orig = self.get_W(layer).clone()
@@ -1454,12 +1797,13 @@ class BasinSurgeon:
         e_target_before = compute_energy(target, W_orig)
 
         # Intervene
+        kw = self._edit_kwargs(layer, W_orig, beta)
         if operation == 'remove':
-            W_after = remove_basin(W_orig, target, strength=strength, beta=beta)
+            W_after = remove_basin(W_orig, target, strength=strength, beta=beta, **kw)
         elif operation == 'weaken':
-            W_after = remove_basin(W_orig, target, strength=strength * 0.5, beta=beta)
+            W_after = remove_basin(W_orig, target, strength=strength * 0.5, beta=beta, **kw)
         elif operation == 'strengthen':
-            W_after = inject_basin(W_orig, target, strength=strength, beta=beta)
+            W_after = inject_basin(W_orig, target, strength=strength, beta=beta, **kw)
         else:
             raise ValueError(f"Unknown operation: {operation}. Use: remove, weaken, strengthen")
 
@@ -1483,10 +1827,13 @@ class BasinSurgeon:
                     'energy_after': compute_energy(final, W_after),
                 })
 
-        # Apply the intervention (leave W modified)
-        self._w_cache[layer] = W_after
+        # Keep the intervention only if it passes the gate
+        exclude = [target] if operation in ('remove', 'weaken') else None
+        cert = self._commit_compact(layer, W_orig, W_after, force=force,
+                                    allowed=[target], exclude=exclude)
 
-        self._history.append(('causal_intervene', layer, basin_idx, operation))
+        self._history.append(('causal_intervene', layer, basin_idx, operation,
+                              cert["applied"]))
 
         return {
             'layer': layer,
@@ -1497,6 +1844,8 @@ class BasinSurgeon:
             'target_energy_before': e_target_before,
             'affected': affected,
             'num_affected': len(affected),
+            'applied': cert["applied"],
+            'retention': cert,
         }
 
     def causal_counterfactual(self, layer=0, basin_idx=0, modification='invert',
@@ -1539,8 +1888,11 @@ class BasinSurgeon:
             raise ValueError(f"Unknown modification: {modification}. Use: invert, weaken, shift")
 
         # Apply counterfactual: remove original, inject modified
-        W_cf = remove_basin(W_orig, original_basin, strength=strength, beta=beta)
-        W_cf = inject_basin(W_cf, cf_basin, strength=strength, beta=beta)
+        kw = self._edit_kwargs(layer, W_orig, beta)
+        W_cf = remove_basin(W_orig, original_basin, strength=strength, beta=beta, **kw)
+        if kw.get('protected') is not None:
+            kw = dict(kw, protected=_without(kw['protected'], original_basin))
+        W_cf = inject_basin(W_cf, cf_basin, strength=strength, beta=beta, **kw)
 
         # Measure effects
         basins_cf, _, _ = find_basins(
@@ -1626,7 +1978,7 @@ class BasinSurgeon:
     # ── Consolidation Engine (Sleep Cycle) ──────────────────────────
 
     def consolidate(self, layer=0, strengthen_factor=1.5, prune_threshold=0.3,
-                    num_inits=100, min_population=2):
+                    num_inits=100, min_population=2, force=False):
         """Memory consolidation pass — the model's sleep cycle.
 
         Replays all basins, strengthens those with high population
@@ -1639,11 +1991,14 @@ class BasinSurgeon:
             prune_threshold: population fraction below which basins get pruned
             num_inits: random inits for basin discovery
             min_population: minimum population to survive pruning
+            force: commit even if the gate refuses (pruning is a removal and
+                goes through the decision-stability guard like any other edit)
 
         Returns:
             dict with consolidation report
         """
         W = self.get_W(layer)
+        W_start = W.clone()
         d = W.shape[0]
         beta = self.get_beta(layer)
 
@@ -1686,7 +2041,8 @@ class BasinSurgeon:
                 # These are rarely-visited attractors, like fading memories
                 strength = self.params['strength']
                 W = remove_basin(W, basin, strength=strength,
-                                 degree=3, beta=beta)
+                                 degree=3, beta=beta,
+                                 **self._edit_kwargs(layer, W_start, beta))
                 pruned.append({
                     'basin_idx': i, 'population': pop,
                     'pop_fraction': round(pop_frac, 4),
@@ -1697,7 +2053,8 @@ class BasinSurgeon:
                 # High-population basins are frequently visited = important memories
                 scale = strengthen_factor * (pop_frac * n_basins)  # proportional to importance
                 W = inject_basin(W, basin, strength=self.params['strength'] * scale,
-                                 degree=3, beta=beta)
+                                 degree=3, beta=beta,
+                                 **self._edit_kwargs(layer, W_start, beta))
                 strengthened.append({
                     'basin_idx': i, 'population': pop,
                     'pop_fraction': round(pop_frac, 4),
@@ -1710,8 +2067,11 @@ class BasinSurgeon:
                     'energy': round(energy, 4),
                 })
 
-        # Commit consolidated W
-        self._w_cache[layer] = W
+        # Commit consolidated W through the gate
+        pruned_basins = [unique_basins[p['basin_idx']] for p in pruned]
+        touched = pruned_basins + [unique_basins[x['basin_idx']] for x in strengthened]
+        cert = self._commit_compact(layer, W_start, W, force=force,
+                                    allowed=touched, exclude=pruned_basins)
 
         # Phase 4: Post-consolidation survey
         basins_after, _, _ = find_basins(
@@ -1727,6 +2087,8 @@ class BasinSurgeon:
             'strengthened_details': strengthened,
             'pruned_details': pruned,
             'total_population': total_pop,
+            'applied': cert["applied"],
+            'retention': cert,
         }
         self._history.append(('consolidate', layer, report['basins_before'],
                               report['basins_after'], report['strengthened'],

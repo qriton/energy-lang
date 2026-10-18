@@ -55,7 +55,8 @@ from qriton_hlm.core import (
     find_basins, compute_energy, poly_interaction,
     inject_basin, remove_basin, move_basin,
     verify_basin_exists, load_W_from_checkpoint,
-    count_hopfield_layers, certify_compact_edit,
+    count_hopfield_layers, certify_compact_edit, certify_decisions,
+    _without, _gate_sets,
 )
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -63,13 +64,47 @@ VERSION = '0.9.4'
 
 
 def _refuse_compact(op_label, cert):
-    return "\n".join([
+    lines = [
         op_label,
         f"  {C.red('REFUSED')}: {cert['reason']}",
         f"  kept {cert['K_kept']}/{cert['K_protected']} protected basins",
-        f"  {C.dim('Existing attractors would not survive this update.')}",
-        f"  {C.dim('Override:')} --force --reason \"...\" to write anyway",
-    ])
+    ]
+    dec = cert.get("decision")
+    if dec:
+        lines.append(
+            f"  decisions changed: {dec['changed_fraction']:.1%} of "
+            f"{dec['n_probes'] - dec['n_intended']} probes (limit {dec['max_changed']:.0%})")
+    if cert["reason"] == "decisions_changed":
+        lines.append(f"  {C.dim('Other decisions would change with this update.')}")
+    else:
+        lines.append(f"  {C.dim('Existing attractors would not survive this update.')}")
+    lines.append(f"  {C.dim('Override:')} --force --reason \"...\" to write anyway")
+    return "\n".join(lines)
+
+
+def _parse_strength(value, default):
+    """A number, or "auto" for the smallest strength that does the edit."""
+    if not value:
+        return default
+    if str(value).lower() == "auto":
+        return "auto"
+    return float(value)
+
+
+def _gate(W, W_new, protected, beta, allowed=None, exclude=None, max_changed=0.02):
+    """Retention certificate over protected basins (minus the edit's own
+    targets) plus the decision-stability guard."""
+    kept, allowed = _gate_sets(protected, allowed, exclude)
+    cert = certify_compact_edit(W, W_new, kept, beta=beta)
+    decision = certify_decisions(W, W_new, protected=protected, allowed=allowed,
+                                 max_changed=max_changed, beta=beta)
+    cert["decision"] = decision
+    if cert["accepted"] and not decision["accepted"]:
+        cert["accepted"] = False
+        cert["promoted"] = True
+        cert["reason"] = "decisions_changed"
+        cert["compact_edit"] = "refused_promoted"
+    return cert
 
 # ── ANSI colors ──────────────────────────────────────────────────────
 
@@ -309,7 +344,7 @@ class GuardSystem:
         violations = []
 
         # strength-cap
-        if strength and 'strength-cap' in self.guards:
+        if strength and strength != 'auto' and 'strength-cap' in self.guards:
             cap = self.guards['strength-cap']
             if abs(strength) > cap:
                 violations.append(
@@ -660,7 +695,7 @@ class EnergyLang:
 
     def cmd_inject(self, layer, seed, strength=None, force=False, reason=None):
         layer = int(layer)
-        strength = float(strength) if strength else self.params['strength']
+        strength = _parse_strength(strength, self.params['strength'])
         W = self._get_W(layer)
         d = W.shape[0]
         target = self._make_target(seed, d)
@@ -676,10 +711,10 @@ class EnergyLang:
         basins_before, _, _ = find_basins(
             W, d, num_inits=100, beta=self._get_beta(layer), device=DEVICE)
 
-        W_new = inject_basin(W, target, strength=strength)
-        cert = certify_compact_edit(
-            W, W_new, basins_before, beta=self._get_beta(layer),
-        )
+        beta = self._get_beta(layer)
+        W_new = inject_basin(W, target, strength=strength, beta=beta,
+                             protected=basins_before)
+        cert = _gate(W, W_new, basins_before, beta, allowed=[target])
         if not cert["accepted"] and not force:
             self._log(f"inject {layer} {seed} {strength}", status='REFUSED',
                       detail=cert["reason"])
@@ -719,7 +754,7 @@ class EnergyLang:
 
     def cmd_remove(self, layer, seed, strength=None, force=False, reason=None):
         layer = int(layer)
-        strength = float(strength) if strength else self.params['strength']
+        strength = _parse_strength(strength, self.params['strength'])
         W = self._get_W(layer)
         d = W.shape[0]
 
@@ -739,10 +774,10 @@ class EnergyLang:
             closest = basins_before[int(np.argmax(sims))]
             target = closest
 
-        W_new = remove_basin(W, target, strength=strength)
-        cert = certify_compact_edit(
-            W, W_new, basins_before, beta=self._get_beta(layer),
-        )
+        beta = self._get_beta(layer)
+        W_new = remove_basin(W, target, strength=strength, beta=beta,
+                             protected=basins_before)
+        cert = _gate(W, W_new, basins_before, beta, allowed=[target], exclude=[target])
         if not cert["accepted"] and not force:
             self._log(f"remove {layer} {seed} {strength}", status='REFUSED',
                       detail=cert["reason"])
@@ -781,7 +816,7 @@ class EnergyLang:
 
     def cmd_move(self, layer, seed, strength=None):
         layer = int(layer)
-        strength = float(strength) if strength else self.params['strength']
+        strength = _parse_strength(strength, self.params['strength'])
         W = self._get_W(layer)
         d = W.shape[0]
 
@@ -797,10 +832,10 @@ class EnergyLang:
             source = source_target
 
         dest = self._make_target(int(seed) + 1000, d)
-        W_new = move_basin(W, source, dest, strength=strength)
-        cert = certify_compact_edit(
-            W, W_new, basins_before, beta=self._get_beta(layer),
-        )
+        beta = self._get_beta(layer)
+        W_new = move_basin(W, source, dest, strength=strength, beta=beta,
+                           protected=basins_before)
+        cert = _gate(W, W_new, basins_before, beta, allowed=[source, dest], exclude=[source])
         if not cert["accepted"]:
             self._log(f"move {layer} {seed} {strength}", status='REFUSED',
                       detail=cert["reason"])
@@ -977,7 +1012,7 @@ class EnergyLang:
 
     def cmd_inject_concept(self, layer, concept_name, strength=None, force=False, reason=None):
         layer = int(layer)
-        strength = float(strength) if strength else self.params['strength']
+        strength = _parse_strength(strength, self.params['strength'])
 
         if concept_name not in self._concepts:
             available = list(self._concepts.keys()) if self._concepts else "none"
@@ -1000,10 +1035,10 @@ class EnergyLang:
         exists_before, _, cos_before, _ = verify_basin_exists(W, target, beta=self._get_beta(layer))
         basins_before, _, _ = find_basins(W, d, num_inits=100, beta=self._get_beta(layer), device=DEVICE)
 
-        W_new = inject_basin(W, target, strength=strength)
-        cert = certify_compact_edit(
-            W, W_new, basins_before, beta=self._get_beta(layer),
-        )
+        beta = self._get_beta(layer)
+        W_new = inject_basin(W, target, strength=strength, beta=beta,
+                             protected=basins_before)
+        cert = _gate(W, W_new, basins_before, beta, allowed=[target])
         if not cert["accepted"] and not force:
             self._log(f"inject-concept {layer} {concept_name} {strength}",
                       status='REFUSED', detail=cert["reason"])
@@ -1037,7 +1072,7 @@ class EnergyLang:
 
     def cmd_remove_concept(self, layer, concept_name, strength=None, force=False, reason=None):
         layer = int(layer)
-        strength = float(strength) if strength else self.params['strength']
+        strength = _parse_strength(strength, self.params['strength'])
 
         if concept_name not in self._concepts:
             return f"{C.red('Unknown concept')} '{concept_name}'"
@@ -1050,9 +1085,20 @@ class EnergyLang:
 
         target = self._concepts[concept_name]['centroid'].to(DEVICE)
         W = self._get_W(layer)
+        d = W.shape[0]
+        beta = self._get_beta(layer)
 
-        W_new = remove_basin(W, target, strength=strength)
-        exists_after, _, cos_after, _ = verify_basin_exists(W_new, target, beta=self._get_beta(layer))
+        basins_before, _, _ = find_basins(W, d, num_inits=100, beta=beta, device=DEVICE)
+        W_new = remove_basin(W, target, strength=strength, beta=beta,
+                             protected=basins_before)
+        cert = _gate(W, W_new, basins_before, beta, allowed=[target], exclude=[target])
+        if not cert["accepted"] and not force:
+            self._log(f"remove-concept {layer} {concept_name} {strength}",
+                      status='REFUSED', detail=cert["reason"])
+            return _refuse_compact(
+                C.bold(f"Remove-concept L{layer} '{concept_name}'"), cert
+            )
+        exists_after, _, cos_after, _ = verify_basin_exists(W_new, target, beta=beta)
 
         self._w_cache[layer] = W_new
         if layer not in self._w_backups:
@@ -1099,7 +1145,14 @@ class EnergyLang:
             sims = [F.cosine_similarity(target.unsqueeze(0), b.unsqueeze(0)).item() for b in basins]
             target = basins[int(np.argmax(sims))]
         e_before = compute_energy(target, W)
-        W_new = inject_basin(W, target, strength=self.params['strength'] * factor)
+        beta = self._get_beta(layer)
+        W_new = inject_basin(W, target, strength=self.params['strength'] * factor,
+                             beta=beta, protected=basins)
+        cert = _gate(W, W_new, basins, beta, allowed=[target])
+        if not cert["accepted"]:
+            self._log(f"strengthen {layer} {seed} {factor}", status='REFUSED',
+                      detail=cert["reason"])
+            return _refuse_compact(C.bold(f"Strengthen L{layer}") + f" seed={seed}", cert)
         e_after = compute_energy(target, W_new)
         self._w_cache[layer] = W_new
         if layer not in self._w_backups:
@@ -1120,7 +1173,14 @@ class EnergyLang:
             sims = [F.cosine_similarity(target.unsqueeze(0), b.unsqueeze(0)).item() for b in basins]
             target = basins[int(np.argmax(sims))]
         e_before = compute_energy(target, W)
-        W_new = remove_basin(W, target, strength=self.params['strength'] * factor)
+        beta = self._get_beta(layer)
+        W_new = remove_basin(W, target, strength=self.params['strength'] * factor,
+                             beta=beta, protected=basins)
+        cert = _gate(W, W_new, basins, beta, allowed=[target], exclude=[target])
+        if not cert["accepted"]:
+            self._log(f"weaken {layer} {seed} {factor}", status='REFUSED',
+                      detail=cert["reason"])
+            return _refuse_compact(C.bold(f"Weaken L{layer}") + f" seed={seed}", cert)
         e_after = compute_energy(target, W_new)
         self._w_cache[layer] = W_new
         if layer not in self._w_backups:
@@ -1413,7 +1473,8 @@ class EnergyLang:
 
         edges = []
         for i in range(n):
-            W_knocked = remove_basin(W_orig, basins[i], strength=self.params['strength'], beta=beta)
+            W_knocked = remove_basin(W_orig, basins[i], strength=self.params['strength'],
+                                     beta=beta, protected=basins)
             for j in range(n):
                 if i == j:
                     continue
@@ -1467,11 +1528,14 @@ class EnergyLang:
 
         # Intervene
         if operation == 'remove':
-            W_after = remove_basin(W_orig, target, strength=self.params['strength'], beta=beta)
+            W_after = remove_basin(W_orig, target, strength=self.params['strength'], beta=beta,
+                                   protected=basins_before)
         elif operation == 'weaken':
-            W_after = remove_basin(W_orig, target, strength=self.params['strength'] * 0.5, beta=beta)
+            W_after = remove_basin(W_orig, target, strength=self.params['strength'] * 0.5,
+                                   beta=beta, protected=basins_before)
         elif operation == 'strengthen':
-            W_after = inject_basin(W_orig, target, strength=self.params['strength'], beta=beta)
+            W_after = inject_basin(W_orig, target, strength=self.params['strength'], beta=beta,
+                                   protected=basins_before)
         else:
             return f"{C.red('Unknown operation:')} {operation}. Use: remove, weaken, strengthen"
 
@@ -1489,7 +1553,14 @@ class EnergyLang:
             if drift > 0.05:
                 affected.append((j, drift, exists))
 
-        # Persist the change
+        # Persist the change only if it passes the gate
+        cert = _gate(W_orig, W_after, basins_before, beta, allowed=[target],
+                     exclude=[target] if operation in ('remove', 'weaken') else None)
+        if not cert["accepted"]:
+            self._log(f"causal intervene {layer} B{basin_idx} {operation}",
+                      status='REFUSED', detail=cert["reason"])
+            return _refuse_compact(
+                C.bold(f"do(B{basin_idx}) = {operation}") + f"  L{layer}", cert)
         if layer not in self._w_backups:
             self._w_backups[layer] = W_orig.clone()
         self._w_cache[layer] = W_after
@@ -1546,8 +1617,10 @@ class EnergyLang:
             return f"{C.red('Unknown modification:')} {modification}. Use: invert, weaken, shift"
 
         # Apply counterfactual temporarily
-        W_cf = remove_basin(W_orig, original, strength=self.params['strength'], beta=beta)
-        W_cf = inject_basin(W_cf, cf, strength=self.params['strength'], beta=beta)
+        W_cf = remove_basin(W_orig, original, strength=self.params['strength'], beta=beta,
+                            protected=basins)
+        W_cf = inject_basin(W_cf, cf, strength=self.params['strength'], beta=beta,
+                            protected=_without(basins, original))
 
         basins_cf, _, _ = find_basins(
             W_cf, d, num_inits=int(self.params['inits']),
