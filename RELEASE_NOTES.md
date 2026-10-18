@@ -54,10 +54,11 @@ run 30/30, so the 0.12.0 column is a like-for-like comparison.
 Before any edit, 81.9% of decisions were correct (mean of the 3 seeds). The old retention
 certificate accepted the 0.13.0 writes up to strength 1.0, while 57% of
 decisions changed. That is the gap the new decision guard closes. Raw rows are
-in `energy-lang-locality-check.json`.
+attached to this release as `energy-lang-locality-check.json`.
 
 The same landscapes went through the full released pipeline (auto strength,
-then the guard; `energy-lang-locality-gated.json`):
+then the guard; attached as `energy-lang-locality-gated.json`, produced by
+`energy-lang-locality-gated.py`):
 
 - Protecting every visible basin (16–24 basins): auto picked 0.4–0.7. The
   target became an attractor 3/3 times, and the guard refused all three (its
