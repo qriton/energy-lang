@@ -368,21 +368,29 @@ def converge_batch(X, W, degree=3, max_iter=100, tau_start=0.9, tau_end=0.1,
     return X
 
 
+GUARD_MAX_PROBES = 4096
+
+
 def default_probes(W, protected=None, n_cue=64, n_random=0, flip=0.15,
-                   seed=0, degree=3, beta=7.0):
+                   seed=0, degree=3, beta=7.0, max_probes=None):
     """A fixed, seeded probe set: noisy cues of each protected basin (inputs
     the model currently decides as that concept), optionally plus random
     starts (the distribution find_basins uses). Random starts are off by
     default: far from every concept, their settling point is not a decision
-    anyone relies on, and a new concept legitimately takes a share of them."""
+    anyone relies on, and a new concept legitimately takes a share of them.
+
+    max_probes caps the cues in total: with K protected basins each gets
+    min(n_cue, max_probes // K) cues, at least one. None: n_cue each.
+    """
     d = W.shape[0]
     if protected is None:
         protected = _default_protected(W, degree, beta)
+    basins = [b for b in protected if b.norm() >= 1e-8]
+    if max_probes is not None and basins:
+        n_cue = max(1, min(n_cue, int(max_probes) // len(basins)))
     gen = torch.Generator(device='cpu').manual_seed(int(seed))
     rows = []
-    for b in protected:
-        if b.norm() < 1e-8:
-            continue
+    for b in basins:
         pattern = torch.sign(b.detach().cpu()) * 0.9
         for _ in range(n_cue):
             mask = torch.rand(d, generator=gen) < flip
@@ -399,7 +407,7 @@ def default_probes(W, protected=None, n_cue=64, n_random=0, flip=0.15,
 
 def certify_decisions(W, W_new, probes=None, protected=None, allowed=None,
                       max_changed=0.02, degree=3, beta=7.0, cos_threshold=0.9,
-                      max_iter=100):
+                      max_iter=100, n_cue=64, max_probes=GUARD_MAX_PROBES):
     """Decision-stability guard for a W edit.
 
     Converges a fixed probe set on W and on W_new and counts probes whose
@@ -411,13 +419,19 @@ def certify_decisions(W, W_new, probes=None, protected=None, allowed=None,
     basin to the new concept is counted. The edit is accepted only if the
     changed fraction of the remaining probes is <= max_changed.
 
+    Without `probes`, each protected basin gets n_cue noisy cues, at most
+    max_probes in total (default_probes; None: no cap). The default cap,
+    64 x 64, never binds for BasinSurgeon's default protected set (at most
+    64 basins, from 64 random starts); it bounds the cost of larger sets.
+
     Returns a dict with accepted, changed_fraction, changed (probe indices),
     n_probes, n_intended and max_changed.
     """
     if protected is None:
         protected = _default_protected(W, degree, beta)
     if probes is None:
-        probes = default_probes(W, protected, degree=degree, beta=beta)
+        probes = default_probes(W, protected, n_cue=n_cue, degree=degree,
+                                beta=beta, max_probes=max_probes)
     before = converge_batch(probes, W, degree, max_iter=max_iter, beta=beta)
     after = converge_batch(probes, W_new, degree, max_iter=max_iter, beta=beta)
 
@@ -623,6 +637,9 @@ class BasinSurgeon:
             # Decision-stability guard: max fraction of cue decisions an edit
             # may change (overridden per layer by guard(max_changed_pct=...)).
             'max_changed': 0.02,
+            # Guard sample size: at most this many noisy cues per edit, 64
+            # per protected basin below it (None: 64 per basin, no cap).
+            'guard_probes': GUARD_MAX_PROBES,
             # With no explicit strength, projected edits use strength="auto".
             'auto_strength': True,
         }
@@ -836,7 +853,8 @@ class BasinSurgeon:
             cert = certify_compact_edit(W, W_new, kept, degree=degree, beta=beta)
             decision = certify_decisions(
                 W, W_new, protected=protected, allowed=allowed,
-                max_changed=self._max_changed(layer), degree=degree, beta=beta)
+                max_changed=self._max_changed(layer), degree=degree, beta=beta,
+                max_probes=self.params.get('guard_probes', GUARD_MAX_PROBES))
             cert["decision"] = decision
             if cert["accepted"] and not decision["accepted"]:
                 cert["accepted"] = False

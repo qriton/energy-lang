@@ -8,9 +8,11 @@ import torch
 import torch.nn.functional as F
 
 from qriton_hlm.core import (
+    GUARD_MAX_PROBES,
     BasinSurgeon,
     _converge,
     certify_decisions,
+    default_probes,
     find_basins,
     inject_basin,
     poly_interaction,
@@ -138,6 +140,35 @@ class TestDecisionGuard:
         cert = certify_decisions(W, W_new, protected=protected, beta=BETA)
         assert not cert["accepted"]
         assert cert["changed"]  # names the probes that moved
+
+
+class TestGuardBudget:
+    def test_default_probes_cap(self, stored):
+        W, _, protected = stored  # 5 basins
+        assert default_probes(W, protected).shape[0] == 5 * 64
+        assert default_probes(W, protected, max_probes=100).shape[0] == 100
+        assert default_probes(W, protected, max_probes=3).shape[0] == 5  # one cue each
+
+    def test_default_cap_keeps_64_cues_per_basin(self, stored):
+        W, _, protected = stored
+        assert GUARD_MAX_PROBES >= 64 * 64
+        cert = certify_decisions(W, W.clone(), protected=protected, beta=BETA)
+        assert cert["n_probes"] == 64 * len(protected)
+
+    def test_capped_guard_still_refuses_destructive_edit(self, stored):
+        W, _, protected = stored
+        W_new = inject_basin(W, new_pattern(), strength=2.0, beta=BETA, mode="legacy")
+        cert = certify_decisions(W, W_new, protected=protected, beta=BETA, max_probes=50)
+        assert cert["n_probes"] == 50
+        assert not cert["accepted"]
+
+    def test_surgeon_passes_guard_probes(self, stored):
+        W, xi, protected = stored
+        s = BasinSurgeon.from_W(W)
+        s._basin_cache[0] = protected
+        s.params['guard_probes'] = 50
+        res = s.inject(0, seed=3)
+        assert res['retention']['decision']['n_probes'] == 50
 
 
 class TestSurgeonGate:
