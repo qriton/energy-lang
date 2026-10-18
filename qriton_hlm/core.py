@@ -607,10 +607,14 @@ class BasinSurgeon:
     Example:
         surgeon = BasinSurgeon.from_checkpoint("model.pt", device="cuda")
         print(surgeon.survey(layer=0))
-        surgeon.inject(layer=0, seed=42, strength=0.1)
-        surgeon.apply(layer=0)
+        result = surgeon.inject(layer=0, seed=42)  # strength="auto", gated
+        if result["applied"]:
+            surgeon.apply(layer=0)
         print(surgeon.diff(layer=0))
         surgeon.restore(layer=0)
+
+    Every edit is a proposal kept only if it passes the gate (see
+    _commit_compact); results carry `applied` and `retention`.
     """
 
     def __init__(self, device='cpu'):
@@ -893,7 +897,11 @@ class BasinSurgeon:
         return basin
 
     def inject(self, layer=0, seed=42, strength=None, force=False):
-        """Propose a Hebbian inject; commit only if it passes the gate."""
+        """Propose a Hebbian inject; commit only if it passes the gate.
+
+        strength=None means "auto" in projected mode (params['auto_strength'])
+        and params['strength'] otherwise.
+        """
         strength = self._strength(strength)
         W = self.get_W(layer)
         d = W.shape[0]
@@ -927,7 +935,10 @@ class BasinSurgeon:
         }
 
     def remove(self, layer=0, seed=42, strength=None, force=False):
-        """Remove closest basin to seed target (through the gate)."""
+        """Remove closest basin to seed target (through the gate).
+
+        strength=None means "auto" in projected mode, as for inject().
+        """
         strength = self._strength(strength)
         W = self.get_W(layer)
         d = W.shape[0]
@@ -959,7 +970,10 @@ class BasinSurgeon:
         }
 
     def move(self, layer=0, seed=42, strength=None, force=False):
-        """Move closest basin to a new location (through the gate)."""
+        """Move closest basin to a new location (through the gate).
+
+        strength=None means "auto" in projected mode, as for inject().
+        """
         strength = self._strength(strength)
         W = self.get_W(layer)
         d = W.shape[0]
@@ -1132,12 +1146,14 @@ class BasinSurgeon:
         """Inject a captured concept as a new basin.
 
         First capture examples with capture(), then inject the averaged
-        concept vector as a new attractor in the energy landscape.
+        concept vector as a new attractor in the energy landscape. Kept only
+        if it passes the gate (no force option).
 
         Args:
             layer: target layer
             concept_name: name of previously captured concept
-            strength: injection strength (default: self.params['strength'])
+            strength: injection strength (default: "auto" in projected mode,
+                else self.params['strength'])
         """
         if concept_name not in self._concepts:
             raise ValueError(f"Unknown concept '{concept_name}'. "
@@ -1181,6 +1197,7 @@ class BasinSurgeon:
 
         Goes through the same gate as every other edit: a removal that would
         change other decisions is refused (W unchanged) unless force=True.
+        strength=None means "auto" in projected mode, as for inject().
         """
         if concept_name not in self._concepts:
             raise ValueError(f"Unknown concept '{concept_name}'")

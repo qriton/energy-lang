@@ -17,9 +17,9 @@ Commands:
     info                  Show loaded model info
     survey <layer>        Find all basins in a layer
     survey-all            Survey all layers
-    inject <layer> <seed> [strength]   Inject a basin
-    remove <layer> <seed> [strength]   Remove closest basin
-    move <layer> <seed> [strength]     Move closest basin
+    inject <layer> <seed> [strength|auto]   Inject a basin
+    remove <layer> <seed> [strength|auto]   Remove closest basin
+    move <layer> <seed> [strength|auto]     Move closest basin
     verify <layer> <seed>              Check if target is a basin
     apply <layer>         Apply last surgery to live model
     restore <layer>       Restore layer to original
@@ -706,8 +706,11 @@ class EnergyLang:
             self._log(f"inject {layer} {seed} {strength}", status='BLOCKED', detail=guard_msg)
             return guard_msg
 
+        # The attractor inject writes is the target's sign pattern; a unit-norm
+        # target itself sits near the origin and settles to zero.
+        pattern = torch.sign(target) * 0.9
         exists_before, _, cos_before, _ = verify_basin_exists(
-            W, target, beta=self._get_beta(layer))
+            W, pattern, beta=self._get_beta(layer))
         basins_before, _, _ = find_basins(
             W, d, num_inits=100, beta=self._get_beta(layer), device=DEVICE)
 
@@ -723,7 +726,7 @@ class EnergyLang:
             )
 
         exists_after, _, cos_after, _ = verify_basin_exists(
-            W_new, target, beta=self._get_beta(layer))
+            W_new, pattern, beta=self._get_beta(layer))
         basins_after, _, _ = find_basins(
             W_new, d, num_inits=100, beta=self._get_beta(layer), device=DEVICE)
 
@@ -844,7 +847,8 @@ class EnergyLang:
             )
 
         src_exists, _, src_cos, _ = verify_basin_exists(W_new, source, beta=self._get_beta(layer))
-        dst_exists, _, dst_cos, _ = verify_basin_exists(W_new, dest, beta=self._get_beta(layer))
+        dst_exists, _, dst_cos, _ = verify_basin_exists(
+            W_new, torch.sign(dest) * 0.9, beta=self._get_beta(layer))
         basins_after, _, _ = find_basins(
             W_new, d, num_inits=100, beta=self._get_beta(layer), device=DEVICE)
 
@@ -871,7 +875,9 @@ class EnergyLang:
         d = W.shape[0]
         target = self._make_target(seed, d)
 
-        exists, final, cos, iters = verify_basin_exists(W, target, beta=self._get_beta(layer))
+        # A basin "at" a seed direction is its sign pattern (what inject writes)
+        exists, final, cos, iters = verify_basin_exists(
+            W, torch.sign(target) * 0.9, beta=self._get_beta(layer))
         energy = compute_energy(final, W)
 
         status = C.green("YES — stable basin") if exists else C.red("NO — not a basin")
@@ -1032,7 +1038,8 @@ class EnergyLang:
         W = self._get_W(layer)
         d = W.shape[0]
 
-        exists_before, _, cos_before, _ = verify_basin_exists(W, target, beta=self._get_beta(layer))
+        pattern = torch.sign(target) * 0.9  # the attractor inject writes
+        exists_before, _, cos_before, _ = verify_basin_exists(W, pattern, beta=self._get_beta(layer))
         basins_before, _, _ = find_basins(W, d, num_inits=100, beta=self._get_beta(layer), device=DEVICE)
 
         beta = self._get_beta(layer)
@@ -1046,7 +1053,7 @@ class EnergyLang:
                 C.bold(f"Inject-concept L{layer} '{concept_name}'"), cert
             )
 
-        exists_after, _, cos_after, _ = verify_basin_exists(W_new, target, beta=self._get_beta(layer))
+        exists_after, _, cos_after, _ = verify_basin_exists(W_new, pattern, beta=self._get_beta(layer))
         basins_after, _, _ = find_basins(W_new, d, num_inits=100, beta=self._get_beta(layer), device=DEVICE)
 
         self._w_cache[layer] = W_new
@@ -1666,16 +1673,16 @@ class EnergyLang:
                 ("landscape <layer>",      "Map full energy landscape"),
             ]),
             (C.bold("MODIFY"), [
-                ("inject <layer> <seed> [α]",    "Inject a new basin"),
-                ("remove <layer> <seed> [α]",    "Remove closest basin"),
-                ("move <layer> <seed> [α]",      "Move closest basin to new location"),
+                ("inject <layer> <seed> [α|auto]", "Inject a new basin"),
+                ("remove <layer> <seed> [α|auto]", "Remove closest basin"),
+                ("move <layer> <seed> [α|auto]",   "Move closest basin to new location"),
                 ("strengthen <layer> <seed> [f]", "Deepen a basin (factor)"),
                 ("weaken <layer> <seed> [f]",     "Shallow a basin (factor)"),
             ]),
             (C.bold("CONCEPTS"), [
                 ("capture <layer> <name> <text>", "Capture concept from text"),
-                ("inject-concept <layer> <name>", "Inject concept as basin"),
-                ("remove-concept <layer> <name>", "Remove concept basin"),
+                ("inject-concept <layer> <name> [α]", "Inject concept as basin"),
+                ("remove-concept <layer> <name> [α]", "Remove concept basin"),
                 ("blend <a> <b> <new> [ratio]",   "Blend two concepts"),
                 ("concepts",                      "List captured concepts"),
                 ("export-concept <name> <path>",  "Export concept to file"),
@@ -1724,6 +1731,9 @@ class EnergyLang:
 
         lines.extend([
             C.dim("─" * 60),
+            f"  {C.dim('Strength:')} α is a number, or auto (the smallest strength that does the edit)",
+            f"  {C.dim('Gate:')}    a write is refused if a protected basin is lost or >2% of",
+            f"           {C.dim('their decisions change; the layer is left unchanged')}",
             f"  {C.dim('Guards:')}  --force --reason \"...\" to override blocked operations",
             f"  {C.dim('Scripts:')} qriton-hlm --script program.hlm",
             f"  {C.dim('Pipe:')}    echo \"survey 0\" | qriton-hlm -c model.pt",

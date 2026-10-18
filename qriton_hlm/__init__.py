@@ -12,11 +12,14 @@ Usage:
     surgeon.capture(layer=5, text="Thank you so much", concept_name="polite")
     surgeon.capture(layer=5, text="I really appreciate it", concept_name="polite")
 
-    # Inject that concept as a new attractor
-    surgeon.inject_concept(layer=5, concept_name="polite", strength=0.1)
+    # Inject that concept as a new attractor (strength="auto" by default).
+    # The write is kept only if it passes the gate: protected basins survive
+    # and at most 2% of their decisions change.
+    result = surgeon.inject_concept(layer=5, concept_name="polite")
 
     # Apply to live model
-    surgeon.apply(layer=5)
+    if result["applied"]:
+        surgeon.apply(layer=5)
 """
 
 __version__ = "0.13.0"
